@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"mproxy/internal/core"
 )
 
 // TestStatusResponseParsesStartupFields 锁定 /api/status 中 action 子命令依赖的字段，
@@ -47,5 +49,63 @@ func TestStatusResponseParsesStartupFields(t *testing.T) {
 	}
 	if !st.Config.Summary.TunEnabled {
 		t.Fatalf("配置 TUN 状态解析错误: %+v", st.Config.Summary)
+	}
+}
+
+func TestTunStartFailed(t *testing.T) {
+	cases := []struct {
+		name     string
+		expect   bool
+		modify   func(*core.Status)
+		expected bool
+	}{
+		{
+			name:   "TUN 开启但控制器报告未生效",
+			expect: true,
+			modify: func(st *core.Status) {
+				st.Installed, st.Running = true, true
+				st.Controller.Reachable, st.Controller.TunEnabled = true, false
+			},
+			expected: true,
+		},
+		{
+			name:   "TUN 开启且控制器报告已生效",
+			expect: true,
+			modify: func(st *core.Status) {
+				st.Installed, st.Running = true, true
+				st.Controller.Reachable, st.Controller.TunEnabled = true, true
+			},
+			expected: false,
+		},
+		{
+			name:   "TUN 关闭时不关心控制器 TUN 字段",
+			expect: false,
+			modify: func(st *core.Status) {
+				st.Installed, st.Running = true, true
+				st.Controller.Reachable, st.Controller.TunEnabled = true, false
+			},
+			expected: false,
+		},
+		{
+			name:   "控制器不可达无法判定",
+			expect: true,
+			modify: func(st *core.Status) {
+				st.Installed, st.Running = true, true
+				st.Controller.Reachable, st.Controller.TunEnabled = false, false
+			},
+			expected: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var st core.Status
+			tc.modify(&st)
+			if got := tunStartFailed(st, tc.expect); got != tc.expected {
+				t.Fatalf("tunStartFailed=%v，期望 %v", got, tc.expected)
+			}
+		})
+	}
+	if len(autoStartBackoffs) != 4 {
+		t.Fatalf("5 次尝试应有 4 个退避间隔，实际 %d", len(autoStartBackoffs))
 	}
 }

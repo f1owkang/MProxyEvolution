@@ -192,8 +192,10 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 
 ### 内核生命周期与更新
 
-- `serve`：建目录、加载/生成配置、写 `state/backend.pid`、按 `auto-start` 异步启动内核（Android 最多等默认
-  路由 120s、带退避重试 3 次；桌面开发 8s）；收到 SIGINT/SIGTERM 退出但内核保持运行。
+- `serve`：建目录、加载/生成配置、写 `state/backend.pid`、按 `auto-start` 异步启动内核。**不要先阻塞等待
+  默认路由**（Android 策略路由下主表探测不可靠，曾因此开机白等 120s）；立即启动内核，启动失败或
+  “进程在跑但控制器 `tunEnabled=false`”时停止后按 2s/5s/10s/20s 退避重试，最多 5 次，总预算 5 分钟。
+  桌面开发同样直接启动；收到 SIGINT/SIGTERM 退出但内核保持运行。
 - 模块描述：`mproxy serve` 启动、内核启动/停止/崩溃/看门狗重启以及 `/api/status` 轮询时，best-effort 把
   当前状态与配置摘要写回**已安装模块** `module.prop` 的 `description=` 行（唯一允许修改的行；保留
   id/name/version/顺序，原子 rename、LF 无 BOM、内容相同不重写；`module.prop` 不存在时静默跳过）。

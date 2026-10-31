@@ -142,11 +142,12 @@ func runServe(_ []string) {
 	}
 	logger.Printf("MProxyEvolution 后端 %s 启动，数据目录 %s", version.Version, paths.DataDir)
 
-	// 按 auto-start 异步启动内核：开机时网络可能晚于服务就绪（慢开机/飞行模式），
-	// 先等默认路由最长 120s，再带退避重试启动，避免永久停留在“已安装未运行”。
+	// 按 auto-start 异步启动内核：不再先阻塞等待默认路由（Android 策略路由下
+	// `/proc/net/route`/`ip route` 常探测不到主表默认路由，最长白等 120s）。
+	// 直接启动内核，若 TUN 未生效再停止内核、等待网络后退避重试，既加快首屏也保留慢开机兜底。
 	// 整个流程在 goroutine 中执行，绝不阻塞后端 HTTP 服务。
 	if doc, derr := cfg.Doc(); derr == nil && doc.Settings().AutoStart && mgr.Installed() && !mgr.Running() {
-		go autoStartCore(mgr, logger)
+		go autoStartCore(mgr, cfg, logger)
 	} else if derr == nil && !mgr.Installed() {
 		logger.Printf("未安装 mihomo 内核，可稍后在面板中安装")
 	}
@@ -164,38 +165,57 @@ func runServe(_ []string) {
 	}
 }
 
-// bootNetworkTimeout 是开机后等待默认路由的最长时间（Android）。慢开机/飞行模式
-// 下网络可能远晚于 sys.boot_completed 就绪，短等待会让内核永久停在“已安装未运行”。
-const bootNetworkTimeout = 120 * time.Second
-
-// devNetworkTimeout 是非 Android 开发环境的网络探测时长（桌面没有 Android 策略路由，
-// 长时间等待只会拖慢本地联调）。
-const devNetworkTimeout = 8 * time.Second
-
-// autoStartBudget 是自动启动内核的总预算（等待网络 + 重试）。
+// autoStartBudget 是自动启动内核的总预算（启动 + TUN 重试）。
 const autoStartBudget = 5 * time.Minute
 
-// autoStartCore 等待网络后带退避重试启动内核，运行在独立 goroutine，不阻塞 serve。
-func autoStartCore(mgr *core.Manager, logger *log.Logger) {
+// autoStartBackoffs 是内核启动失败或 TUN 未生效时的重试间隔（最多 5 次尝试）。
+var autoStartBackoffs = []time.Duration{
+	2 * time.Second,
+	5 * time.Second,
+	10 * time.Second,
+	20 * time.Second,
+}
+
+// tunStartFailed 判断“内核进程已启动且控制器可达，但 TUN 实际未生效”。
+// TUN 建链失败时 mihomo 进程不会退出，只靠 Running 会误判成功。
+func tunStartFailed(st core.Status, tunExpected bool) bool {
+	return tunExpected && st.Installed && st.Running && st.Controller.Reachable && !st.Controller.TunEnabled
+}
+
+// autoStartCore 立即尝试启动内核；启动失败或 TUN 未生效时按短退避重试，
+// 运行在独立 goroutine，不阻塞 serve。参考 akashaProxy / box4magisk / tunclash：
+// 开机后直接启动内核，把网络未就绪交给重试/watchdog，而不是先白等两分钟。
+func autoStartCore(mgr *core.Manager, cfg *config.Manager, logger *log.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), autoStartBudget)
 	defer cancel()
 
-	networkTimeout := devNetworkTimeout
-	if sysutil.IsAndroid() {
-		networkTimeout = bootNetworkTimeout
+	tunExpected := false
+	if doc, err := cfg.Doc(); err == nil {
+		tunExpected = doc.GetBool(false, "tun", "enable")
 	}
-	if !sysutil.WaitForNetworkBackoff(networkTimeout) {
-		logger.Printf("等待默认网络路由超时（%s），仍尝试启动内核；联网后可手动重启内核", networkTimeout)
-	}
-
-	// 最多 3 次尝试，失败后按 2s、5s 退避；ErrAlreadyRunning/ErrNotInstalled 不重试。
-	const maxAttempts = 3
-	backoffs := []time.Duration{2 * time.Second, 5 * time.Second}
+	const maxAttempts = 5
+	startedAt := time.Now()
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		err := mgr.Start(ctx)
 		if err == nil {
+			if tunExpected {
+				if st := mgr.Status(); tunStartFailed(st, true) {
+					logger.Printf("自动启动后 TUN 未生效（第 %d/%d 次），停止内核等待网络后重试", attempt, maxAttempts)
+					_ = mgr.Stop()
+					if attempt >= maxAttempts {
+						logger.Printf("TUN 重试 %d 次仍未生效，请联网后通过面板或模块「执行」按钮重启内核", maxAttempts)
+						return
+					}
+					if !sleepCtx(ctx, autoStartBackoffs[attempt-1]) {
+						return
+					}
+					continue
+				}
+			}
 			if attempt > 1 {
-				logger.Printf("自动启动内核成功（第 %d 次尝试）", attempt)
+				logger.Printf("自动启动内核成功（第 %d 次尝试，耗时 %s）", attempt, time.Since(startedAt).Round(time.Millisecond))
+			} else {
+				logger.Printf("自动启动内核成功（耗时 %s）", time.Since(startedAt).Round(time.Millisecond))
 			}
 			return
 		}
@@ -211,14 +231,21 @@ func autoStartCore(mgr *core.Manager, logger *log.Logger) {
 			logger.Printf("自动启动内核失败（已尝试 %d 次），可在面板中手动启动: %v", maxAttempts, err)
 			return
 		}
-		delay := backoffs[attempt-1]
+		delay := autoStartBackoffs[attempt-1]
 		logger.Printf("自动启动内核失败（第 %d/%d 次），%s 后重试: %v", attempt, maxAttempts, delay, err)
-		select {
-		case <-ctx.Done():
-			logger.Printf("自动启动内核超时，放弃重试: %v", ctx.Err())
+		if !sleepCtx(ctx, delay) {
 			return
-		case <-time.After(delay):
 		}
+	}
+}
+
+// sleepCtx 等待 d，上下文取消时返回 false（启动预算耗尽）。
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
 	}
 }
 
