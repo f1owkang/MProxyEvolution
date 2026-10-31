@@ -368,17 +368,22 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	if err := m.paths.EnsureDirs(); err != nil {
 		return err
 	}
-	// TUN 需要接管全部 DNS 流量：先临时关闭系统 Private DNS（DoT），否则 853 端口
-	// 的加密 DNS 会绕过 mihomo fake-ip。失败只记录日志，绝不影响启动。
-	dnsChanged := false
+	// TUN 需要接管全部 DNS 流量：auto 模式下先临时关闭系统 Private DNS（DoT），否则 853 端口
+	// 的加密 DNS 会绕过 mihomo fake-ip。x-mproxy.private-dns=keep 时完全不修改系统设置。
+	// 失败只记录日志，绝不影响启动。
 	if sysutil.IsAndroid() && doc.GetBool(false, "tun", "enable") {
-		dnsChanged = m.disablePrivateDNS()
+		if doc.Settings().PrivateDNS == config.PrivateDNSKeep {
+			m.logger.Printf("TUN 已开启但 x-mproxy.private-dns=keep：保留系统 Private DNS 设置")
+		} else {
+			m.disablePrivateDNS()
+		}
 	}
-	// 只有“内核正在运行”或“看门狗还会重试”时保留 Private DNS 关闭状态；
-	// 其它失败路径（手动启动失败/更新失败）恢复系统设置，避免用户 DNS 被留在 off。
+	// 启动成功或看门狗还会重试时保留 Private DNS 关闭状态；其它失败路径（手动启动失败/
+	// 更新失败）一律按状态文件恢复（无状态文件时为空操作）。恢复只取决于状态文件，
+	// 与当前 private-dns 设置无关，避免 auto→keep 后系统 Private DNS 被长期留在 off。
 	started := false
 	defer func() {
-		if started || retryPending || !dnsChanged {
+		if started || retryPending {
 			return
 		}
 		m.restorePrivateDNS()

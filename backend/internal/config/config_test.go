@@ -596,3 +596,83 @@ func TestManagerSaveRejectsInvalid(t *testing.T) {
 		t.Fatal("保存失败后不应残留临时文件")
 	}
 }
+
+func TestPrivateDNSSetting(t *testing.T) {
+	doc, err := NewDefault("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 默认值为 auto，默认模板里带 private-dns: auto
+	if got := doc.Settings().PrivateDNS; got != PrivateDNSAuto {
+		t.Fatalf("默认 privateDNS = %q，期望 auto", got)
+	}
+	if !strings.Contains(defaultTemplate, "private-dns: auto") {
+		t.Fatal("默认模板应包含 private-dns: auto")
+	}
+	if got := DefaultSettings().PrivateDNS; got != PrivateDNSAuto {
+		t.Fatalf("DefaultSettings().PrivateDNS = %q", got)
+	}
+	// keep：大小写不敏感，写入时归一化为小写
+	keep := "KEEP"
+	changed, err := doc.ApplySettings(SettingsPatch{PrivateDNS: &keep})
+	if err != nil || !changed {
+		t.Fatalf("ApplySettings(keep) changed=%v err=%v", changed, err)
+	}
+	if got := doc.Settings().PrivateDNS; got != PrivateDNSKeep {
+		t.Fatalf("privateDNS = %q，期望 keep", got)
+	}
+	if got := doc.GetString("", "x-mproxy", "private-dns"); got != PrivateDNSKeep {
+		t.Fatalf("磁盘字段应归一化为小写，得到 %q", got)
+	}
+	// 相同值不产生变更
+	keepAgain := "keep"
+	if changed, err := doc.ApplySettings(SettingsPatch{PrivateDNS: &keepAgain}); err != nil || changed {
+		t.Fatalf("重复设置 keep 不应变更: changed=%v err=%v", changed, err)
+	}
+	// auto：恢复默认
+	auto := "AUTO"
+	changed, err = doc.ApplySettings(SettingsPatch{PrivateDNS: &auto})
+	if err != nil || !changed {
+		t.Fatalf("ApplySettings(auto) changed=%v err=%v", changed, err)
+	}
+	if got := doc.Settings().PrivateDNS; got != PrivateDNSAuto {
+		t.Fatalf("privateDNS = %q，期望 auto", got)
+	}
+	// 非法值拒绝且不写回
+	for _, bad := range []string{"off", "", "strict ", "opportunistic"} {
+		v := bad
+		_, err := doc.ApplySettings(SettingsPatch{PrivateDNS: &v})
+		if err == nil {
+			t.Fatalf("private-dns=%q 应被拒绝", bad)
+		}
+		if !strings.Contains(err.Error(), "private-dns 只能是 auto 或 keep") {
+			t.Fatalf("错误信息不符合预期: %v", err)
+		}
+	}
+	if got := doc.Settings().PrivateDNS; got != PrivateDNSAuto {
+		t.Fatalf("非法值不应写回，privateDNS = %q", got)
+	}
+	// 读取旧配置里的未知值时宽松回退 auto
+	doc.Set([]string{"x-mproxy", "private-dns"}, "bogus")
+	if got := doc.Settings().PrivateDNS; got != PrivateDNSAuto {
+		t.Fatalf("未知值应宽松回退 auto，得到 %q", got)
+	}
+	// clone 独立，Summary 不受新字段影响
+	doc.Set([]string{"x-mproxy", "private-dns"}, PrivateDNSAuto)
+	clone := doc.Clone()
+	keepClone := "keep"
+	if _, err := clone.ApplySettings(SettingsPatch{PrivateDNS: &keepClone}); err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Settings().PrivateDNS; got != PrivateDNSAuto {
+		t.Fatalf("clone 修改不应影响原 doc，得到 %q", got)
+	}
+	if got := clone.Settings().PrivateDNS; got != PrivateDNSKeep {
+		t.Fatalf("clone.privateDNS = %q", got)
+	}
+	summaryBefore := doc.Summary()
+	doc.Set([]string{"x-mproxy", "private-dns"}, PrivateDNSKeep)
+	if summaryAfter := doc.Summary(); summaryAfter != summaryBefore {
+		t.Fatalf("Summary 不应包含 private-dns: %+v vs %+v", summaryBefore, summaryAfter)
+	}
+}

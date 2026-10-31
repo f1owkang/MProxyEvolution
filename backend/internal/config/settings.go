@@ -19,6 +19,12 @@ const (
 	ChannelAlpha  = "alpha"
 )
 
+// 合法 private-dns 值：auto 表示 TUN 运行时临时关闭系统 Private DNS，keep 表示不修改。
+const (
+	PrivateDNSAuto = "auto"
+	PrivateDNSKeep = "keep"
+)
+
 // Settings 对应配置中的 x-mproxy 段。
 type Settings struct {
 	Version       int    `json:"version"`
@@ -27,6 +33,7 @@ type Settings struct {
 	UpdateChannel string `json:"updateChannel"`
 	Ghproxy       string `json:"ghproxy"`
 	Onboarded     bool   `json:"onboarded"`
+	PrivateDNS    string `json:"privateDNS"`
 }
 
 // SettingsPatch 是 PATCH /api/mproxy/settings 的请求体（指针区分“未提供”）。
@@ -38,6 +45,7 @@ type SettingsPatch struct {
 	Ghproxy       *string `json:"ghproxy,omitempty"`
 	Onboarded     *bool   `json:"onboarded,omitempty"`
 	TunEnabled    *bool   `json:"tunEnabled,omitempty"`
+	PrivateDNS    *string `json:"privateDNS,omitempty"`
 }
 
 // DefaultSettings 返回 x-mproxy 的默认设置。
@@ -49,6 +57,7 @@ func DefaultSettings() Settings {
 		UpdateChannel: ChannelStable,
 		Ghproxy:       "",
 		Onboarded:     false,
+		PrivateDNS:    PrivateDNSAuto,
 	}
 }
 
@@ -68,7 +77,17 @@ func (d *Doc) Settings() Settings {
 	}
 	s.Ghproxy = d.GetString("", "x-mproxy", "ghproxy")
 	s.Onboarded = d.GetBool(false, "x-mproxy", "onboarded")
+	s.PrivateDNS = normalizePrivateDNS(d.GetString(s.PrivateDNS, "x-mproxy", "private-dns"))
 	return s
+}
+
+// normalizePrivateDNS 归一化 private-dns：合法值转小写，缺失或未知值回退 auto。
+// 读取旧配置时保持宽松，校验交给 ValidatePrivateDNS。
+func normalizePrivateDNS(v string) string {
+	if strings.EqualFold(strings.TrimSpace(v), PrivateDNSKeep) {
+		return PrivateDNSKeep
+	}
+	return PrivateDNSAuto
 }
 
 // ValidateProxyMode 校验 proxy-mode（v0.1 拒绝 tproxy）。
@@ -95,6 +114,16 @@ func ValidateChannel(channel string) error {
 	}
 }
 
+// ValidatePrivateDNS 校验 private-dns（大小写不敏感的 auto / keep）。
+func ValidatePrivateDNS(v string) error {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case PrivateDNSAuto, PrivateDNSKeep:
+		return nil
+	default:
+		return fmt.Errorf("private-dns 只能是 auto 或 keep")
+	}
+}
+
 // ApplySettings 把 PATCH 子集写回 x-mproxy 与 tun.enable，返回是否有变更。
 func (d *Doc) ApplySettings(p SettingsPatch) (bool, error) {
 	changed := false
@@ -106,6 +135,7 @@ func (d *Doc) ApplySettings(p SettingsPatch) (bool, error) {
 			"update-channel": DefaultSettings().UpdateChannel,
 			"ghproxy":        "",
 			"onboarded":      false,
+			"private-dns":    DefaultSettings().PrivateDNS,
 		})
 	}
 	if p.Version != nil && *p.Version != d.GetInt(1, "x-mproxy", "version") {
@@ -172,6 +202,16 @@ func (d *Doc) ApplySettings(p SettingsPatch) (bool, error) {
 	if p.Onboarded != nil && *p.Onboarded != d.GetBool(false, "x-mproxy", "onboarded") {
 		d.Set([]string{"x-mproxy", "onboarded"}, *p.Onboarded)
 		changed = true
+	}
+	if p.PrivateDNS != nil {
+		val := strings.ToLower(strings.TrimSpace(*p.PrivateDNS))
+		if err := ValidatePrivateDNS(val); err != nil {
+			return false, err
+		}
+		if val != d.GetString(PrivateDNSAuto, "x-mproxy", "private-dns") {
+			d.Set([]string{"x-mproxy", "private-dns"}, val)
+			changed = true
+		}
 	}
 	return changed, nil
 }
@@ -353,6 +393,7 @@ func (d *Doc) EnsureDefaults(secret string) {
 			"update-channel": ChannelStable,
 			"ghproxy":        "",
 			"onboarded":      false,
+			"private-dns":    PrivateDNSAuto,
 		})
 	}
 	if s := d.GetString("", "secret"); s == "" && secret != "" {
