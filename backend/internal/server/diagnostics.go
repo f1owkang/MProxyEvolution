@@ -51,7 +51,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		LogTail:     s.opts.Core.LogTail(50),
 	}
 	tunEnabled := false
-	tunDevice := "Meta"
+	tunDevice := sysutil.DefaultTUNDeviceName
 	if doc, err := s.opts.Config.Doc(); err == nil {
 		resp.Summary = doc.Summary()
 		tunEnabled = doc.GetBool(false, "tun", "enable")
@@ -126,9 +126,14 @@ func privateDNSCheck(tunEnabled bool) diagnosticCheck {
 }
 
 // tunDeviceCheck 检查配置的 TUN 设备是否残留：内核未运行但设备仍在，通常是强杀残留。
+// 只有 mihomo 默认设备名会被后端自动清理；自定义设备名需用户手动处理。
 func tunDeviceCheck(enabled bool, device string, coreRunning bool) diagnosticCheck {
 	if !enabled {
 		return diagnosticCheck{Name: "TUN 设备", OK: true, Detail: "未启用 TUN"}
+	}
+	device = strings.TrimSpace(device)
+	if device == "" {
+		device = sysutil.DefaultTUNDeviceName
 	}
 	if !sysutil.IsAndroid() {
 		return diagnosticCheck{Name: "TUN 设备", OK: true, Detail: device + "（非 Android 不检测）"}
@@ -140,7 +145,10 @@ func tunDeviceCheck(enabled bool, device string, coreRunning bool) diagnosticChe
 	if coreRunning {
 		return diagnosticCheck{Name: "TUN 设备", OK: true, Detail: device + " 存在（内核运行中）"}
 	}
-	return diagnosticCheck{Name: "TUN 设备", OK: false, Detail: device + " 存在但内核未运行，疑似上次异常退出残留"}
+	if device == sysutil.DefaultTUNDeviceName {
+		return diagnosticCheck{Name: "TUN 设备", OK: false, Detail: device + " 存在但内核未运行，疑似上次异常退出残留（下次启动将自动清理）"}
+	}
+	return diagnosticCheck{Name: "TUN 设备", OK: false, Detail: device + " 存在但内核未运行，疑似上次异常退出残留；自定义设备名需手动清理"}
 }
 
 // lastExitCheck 读取 state/last_exit，报告上次内核退出是否为异常退出。

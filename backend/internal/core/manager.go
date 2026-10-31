@@ -71,11 +71,13 @@ type Manager struct {
 	// intentionalStop 标记“主动停止/重启中”，用于区分崩溃与用户操作；
 	// restarts 是当前连续自动重启次数（手动 Start 时清零）；
 	// lastExit* 保存最近一次内核退出信息（写 state/last_exit 并在 Status 暴露）。
-	intentionalStop bool
-	restarts        int
-	lastExitAt      time.Time
-	lastExitPID     int
-	lastExitReason  string
+	// lastExitIntentional 区分“主动停止”与异常退出，供 TUN 残留清理等安全决策使用。
+	intentionalStop     bool
+	restarts            int
+	lastExitAt          time.Time
+	lastExitPID         int
+	lastExitReason      string
+	lastExitIntentional bool
 	// starting 表示 start() 已拉起进程但尚未确认控制器就绪；此期间的进程退出
 	// 由 start() 自己处理（返回错误或由看门狗重试），afterExit 不应再触发一次自愈。
 	starting bool
@@ -131,7 +133,16 @@ func (m *Manager) loadLastExit() {
 	m.lastExitAt = info.Time
 	m.lastExitPID = info.PID
 	m.lastExitReason = info.Err
+	m.lastExitIntentional = info.Intentional
 	m.mu.Unlock()
+}
+
+// lastExitWasAbnormal 返回上一次内核退出是否属于异常退出（非主动停止且有错误原因）。
+// 后端刚启动、没有 state/last_exit 记录时返回 false，避免把正常停止后的状态误判为残留。
+func (m *Manager) lastExitWasAbnormal() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.lastExitAt.IsZero() && !m.lastExitIntentional && m.lastExitReason != ""
 }
 
 // coreProcessNeedle 是内核命令行必须包含的片段，用于 pid 身份校验。
@@ -372,6 +383,8 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 		}
 		m.restorePrivateDNS()
 	}()
+	// 启动前受控清理“上次异常退出”残留的 TUN 网卡；失败只告警，绝不影响启动。
+	m.cleanupStaleTUN(doc)
 	prepareAndroidNetwork(m.logger)
 	logFile, err := m.openCoreLog()
 	if err != nil {
@@ -452,6 +465,58 @@ func (m *Manager) prepareTUNInterface(doc *config.Doc) {
 	m.logger.Printf("TUN 已关闭自动探测，写入顶层 interface-name: %s", iface)
 }
 
+// cleanupStaleTUN 在内核启动前受控清理上一次异常退出残留的 TUN 网卡。
+// 安全优先：仅当内核/外部实例都不在运行、Android、TUN 开启、上次退出异常、
+// 控制器不可达、设备确实存在且设备名恰为 mihomo 默认名 "Meta" 时才删除；
+// 自定义设备名只记录日志并跳过（可能是用户自己的网卡）。
+// 任何失败都只写日志，绝不阻断或影响内核启动。
+func (m *Manager) cleanupStaleTUN(doc *config.Doc) {
+	if doc == nil {
+		return
+	}
+	device := strings.TrimSpace(doc.GetString("", "tun", "device"))
+	if device == "" {
+		device = sysutil.DefaultTUNDeviceName
+	}
+	state := sysutil.TUNCleanupState{
+		Android:      sysutil.IsAndroid(),
+		TunEnabled:   doc.GetBool(false, "tun", "enable"),
+		AbnormalExit: m.lastExitWasAbnormal(),
+		DeviceName:   device,
+	}
+	// 快速路径：不满足基本条件时不做任何 ip 查询/控制器探测。
+	if !state.Android || !state.TunEnabled || !state.AbnormalExit {
+		return
+	}
+	// 内核或外部实例仍在运行时，TUN 设备可能正在被使用，绝不清除。
+	if m.PID() > 0 || m.isExternal() {
+		return
+	}
+	if !sysutil.ValidTUNDeviceName(state.DeviceName) {
+		m.logger.Printf("TUN 残留检查：设备名 %q 非法，已跳过自动清理", state.DeviceName)
+		return
+	}
+	state.DeviceExists = sysutil.TUNDeviceExists(state.DeviceName)
+	if !state.DeviceExists {
+		return
+	}
+	state.ControllerReachable = m.controllerReachable()
+	decision := sysutil.DecideTUNCleanup(state)
+	if !decision.Stale {
+		return
+	}
+	if !decision.Clean {
+		m.logger.Printf("TUN 残留检查：%s", decision.Reason)
+		return
+	}
+	m.logger.Printf("检测到残留 TUN 设备 %s（上次内核异常退出），尝试自动清理", state.DeviceName)
+	if err := sysutil.DeleteLink(state.DeviceName); err != nil {
+		m.logger.Printf("自动清理残留 TUN 设备失败（继续启动）: %v", err)
+		return
+	}
+	m.logger.Printf("已自动清理残留 TUN 设备 %s", state.DeviceName)
+}
+
 // coreLogMaxBytes 是内核日志单文件上限，超过后在启动时轮转为 core.log.1。
 const coreLogMaxBytes = 5 << 20
 
@@ -500,6 +565,7 @@ func (m *Manager) afterExit(pid int, err error) {
 		m.lastExitAt = now
 		m.lastExitPID = pid
 		m.lastExitReason = exitReason(err)
+		m.lastExitIntentional = intentional
 	}
 	m.mu.Unlock()
 	if !tracked {
@@ -552,6 +618,9 @@ func (m *Manager) writeLastExit(at time.Time, pid int, err error, intentional bo
 	if werr := sysutil.WriteLastExit(m.paths.LastExitPath(), info); werr != nil {
 		m.logger.Printf("写入上次内核退出状态失败: %v", werr)
 	}
+	m.mu.Lock()
+	m.lastExitIntentional = intentional
+	m.mu.Unlock()
 }
 
 // clearLastExit 在启动成功后清除“上次异常退出”记录，避免诊断页持续提示旧故障。
@@ -561,6 +630,7 @@ func (m *Manager) clearLastExit() {
 	m.lastExitAt = time.Time{}
 	m.lastExitPID = 0
 	m.lastExitReason = ""
+	m.lastExitIntentional = false
 	m.mu.Unlock()
 }
 
