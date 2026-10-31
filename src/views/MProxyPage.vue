@@ -1,7 +1,7 @@
 <template>
   <div
     class="h-full overflow-x-hidden overflow-y-auto"
-    :style="padding"
+    :style="pageStyle"
   >
     <div class="flex flex-col gap-3 p-3">
       <header class="base-container p-4">
@@ -108,7 +108,17 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
-const { padding } = usePaddingForViews({ offsetTop: 0, offsetBottom: 0 })
+const { padding, paddingTop, paddingBottom } = usePaddingForViews({
+  offsetTop: 0,
+  offsetBottom: 0,
+})
+// Edge-to-edge（KernelSU）下页面顶部会压到状态栏：叠加系统安全区，底部同样避让，
+// 兼容 insets.css 注入的变量与 WebView 原生 env()。
+const pageStyle = computed(() => ({
+  ...padding.value,
+  paddingTop: `calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + ${paddingTop.value}px)`,
+  paddingBottom: `calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + ${paddingBottom.value}px)`,
+}))
 
 const tab = ref('core')
 const status = ref<MProxyStatus | null>(null)

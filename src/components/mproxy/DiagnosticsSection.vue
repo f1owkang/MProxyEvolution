@@ -61,10 +61,10 @@
         <div class="mt-1 flex flex-wrap gap-2">
           <button
             class="btn btn-primary btn-sm"
-            :disabled="downloading"
-            @click="downloadDiagnostics"
+            :disabled="!diagnosticsText"
+            @click="copy(diagnosticsText)"
           >
-            {{ downloading ? t('mproxyDiagnosticsPacking') : t('mproxyDownloadDiagnostics') }}
+            {{ t('mproxyCopyDiagnostics') }}
           </button>
           <button
             class="btn btn-sm"
@@ -171,7 +171,6 @@ defineProps<{
 const metaUrl = ref('')
 const diagnostics = ref<DiagnosticsResponse | null>(null)
 const loading = ref(false)
-const downloading = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error'>('success')
 
@@ -204,7 +203,21 @@ const copy = async (text: string) => {
     await navigator.clipboard.writeText(text)
     setMessage(t('mproxyDiagnosticsCopied'))
   } catch {
-    setMessage(t('mproxyCopyFailed'), 'error')
+    // KernelSU WebView/旧 WebView 可能没有 clipboard API，退回到 execCommand。
+    try {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(area)
+      if (!ok) throw new Error('copy failed')
+      setMessage(t('mproxyDiagnosticsCopied'))
+    } catch {
+      setMessage(t('mproxyCopyFailed'), 'error')
+    }
   }
 }
 
@@ -230,23 +243,6 @@ const loadDiagnostics = async () => {
     )
   } finally {
     loading.value = false
-  }
-}
-
-const downloadDiagnostics = async () => {
-  downloading.value = true
-  try {
-    await mproxyApi.downloadDiagnostics()
-    setMessage(t('mproxyDiagnosticsDownloadStarted'))
-  } catch (error) {
-    setMessage(
-      t('mproxyDiagnosticsDownloadError', {
-        error: error instanceof Error ? error.message : String(error),
-      }),
-      'error',
-    )
-  } finally {
-    downloading.value = false
   }
 }
 
