@@ -12,7 +12,7 @@
 
 [English](README_EN.md) | 简体中文
 
-[特性](#特性) ｜ [界面预览](#界面预览) ｜ [安装](#安装) ｜ [工作原理](#工作原理) ｜ [常见问题](#常见问题) ｜ [兼容性](#兼容性) ｜ [已知限制](#已知限制) ｜ [从源码构建](#从源码构建) ｜ [上游同步](#上游同步) ｜ [免责声明](#免责声明) ｜ [License](#license)
+[特性](#特性) ｜ [界面预览](#界面预览) ｜ [安装](#安装) ｜ [工作原理](#工作原理) ｜ [常见问题](#常见问题) ｜ [兼容性](#兼容性) ｜ [已知限制](#已知限制) ｜ [从源码构建](#从源码构建) ｜ [上游同步](#上游同步) ｜ [致谢](#致谢) ｜ [免责声明](#免责声明) ｜ [License](#license)
 
 </div>
 
@@ -207,6 +207,17 @@ cd backend && MPROXY_DEV=1 go run ./cmd/mproxy serve
 `upstream/mihomo` 以 git submodule 固定到 release tag，禁止跟随分支 HEAD。`.github/workflows/sync-upstream.yml` 每天检查两个上游的最新 release：mihomo 更新 submodule；zashboard 把 release tag merge 进 `panel` 分支，并创建只更新 `panel.lock` 与 mihomo submodule 的 `chore/sync-panel-<tag>` PR。该 PR 由 workflow token 创建，不会自动触发 CI，合并前需本地或手动触发验证。推送 `v*` tag 时 `release.yml` 构建 `dist/MProxyEvolution-<versionCode>-<version>.zip` 与 `.sha256` 并创建 GitHub Release。
 
 同步失败时工作流直接失败，需要人工处理；发版流程以 `.github/workflows/release.yml` 为准。
+
+## 致谢
+
+以下开源项目在实现与排障过程中提供了参考（按项目名排序，均非本项目依赖）：
+
+- [akashaProxy](https://github.com/akashaProxy/akashaProxy)：mihomo Magisk 模块的启停、iptables 与 TUN/策略路由处理，也是以 `root:net_admin` 运行内核的参考来源。
+- [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk)：Android 透明代理模块的 TUN/网络能力探测与配置管理思路参考。
+- [box4magisk](https://github.com/CHIZI-0618/box4magisk)：多内核模块的 TUN 转发、用户组与停止清理流程参考。
+- [tunclash](https://github.com/De4869/tunclash)：Android 17 Root TUN 的实测方案，参考了 mihomo 默认策略路由 `table 2022` / `rule 9000` 的清理与启动顺序。
+
+感谢以上作者与社区。具体实现以本仓库代码为准，上述项目与本项目无隶属关系。
 
 ## 免责声明
 

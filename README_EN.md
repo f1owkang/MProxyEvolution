@@ -12,7 +12,7 @@
 
 English | [简体中文](README.md)
 
-[Features](#features) | [Screenshots](#screenshots) | [Installation](#installation) | [How it works](#how-it-works) | [FAQ](#faq) | [Compatibility](#compatibility) | [Known limitations](#known-limitations) | [Build from source](#build-from-source) | [Repository layout](#repository-layout) | [Upstream sync](#upstream-sync) | [Disclaimer](#disclaimer) | [License](#license)
+[Features](#features) | [Screenshots](#screenshots) | [Installation](#installation) | [How it works](#how-it-works) | [FAQ](#faq) | [Compatibility](#compatibility) | [Known limitations](#known-limitations) | [Build from source](#build-from-source) | [Repository layout](#repository-layout) | [Upstream sync](#upstream-sync) | [Acknowledgements](#acknowledgements) | [Disclaimer](#disclaimer) | [License](#license)
 
 </div>
 
@@ -222,6 +222,17 @@ The panel is maintained as a **fork + git merge**: the full zashboard upstream h
 `upstream/mihomo` is a git submodule pinned to a release tag — never to a branch HEAD. `.github/workflows/sync-upstream.yml` checks the latest release of both upstreams daily: mihomo updates the submodule, while zashboard's release tag is merged into the `panel` branch and a `chore/sync-panel-<tag>` PR is opened that only updates `panel.lock` and the mihomo submodule. That PR is created with the workflow token, so it does not trigger CI automatically; verify locally or dispatch the workflow manually before merging. Pushing a `v*` tag makes `release.yml` build `dist/MProxyEvolution-<versionCode>-<version>.zip` plus `.sha256` and create the GitHub Release.
 
 Sync failures fail the workflow and need manual handling; the release flow is defined by `.github/workflows/release.yml`.
+
+## Acknowledgements
+
+The following open-source projects were referenced while implementing and troubleshooting this module (listed alphabetically; none is a dependency):
+
+- [akashaProxy](https://github.com/akashaProxy/akashaProxy): mihomo Magisk module start/stop, iptables and TUN/policy-routing handling; also the reference for running the kernel as `root:net_admin`.
+- [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk): ideas for TUN/network capability probing and configuration management in an Android transparent-proxy module.
+- [box4magisk](https://github.com/CHIZI-0618/box4magisk): reference for TUN forwarding, user groups and stop/cleanup flows in a multi-kernel module.
+- [tunclash](https://github.com/De4869/tunclash): a tested Android 17 root-TUN setup; reference for cleaning mihomo's default policy-routing `table 2022` / `rule 9000` and startup ordering.
+
+Thanks to the authors and communities above. The implementation in this repository is authoritative; these projects are not affiliated with this module.
 
 ## Disclaimer
 
