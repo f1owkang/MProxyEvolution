@@ -248,7 +248,7 @@ import BackendSettings from '@/components/settings/backend/BackendSettings.vue'
 import ConnectionsSettings from '@/components/settings/connections/ConnectionsSettings.vue'
 import ModuleSettings from '@/components/settings/module/ModuleSettings.vue'
 import RoutingSettings from '@/components/settings/routing/RoutingSettings.vue'
-import SubscriptionSettings from '@/components/settings/subscription/SubscriptionSettings.vue'
+import ConfigSettings from '@/components/settings/config/ConfigSettings.vue'
 import ZashboardSettings from '@/components/settings/general/ZashboardSettings.vue'
 import OverviewSettings from '@/components/settings/overview/OverviewSettings.vue'
 import ProxiesSettings from '@/components/settings/proxies/ProxiesSettings.vue'
@@ -324,7 +324,7 @@ const categoryComponents: Record<SETTINGS_MENU_KEY, Component> = {
   [SETTINGS_MENU_KEY.proxies]: ProxiesSettings,
   [SETTINGS_MENU_KEY.connections]: ConnectionsSettings,
   [SETTINGS_MENU_KEY.module]: ModuleSettings,
-  [SETTINGS_MENU_KEY.subscription]: SubscriptionSettings,
+  [SETTINGS_MENU_KEY.subscription]: ConfigSettings,
   [SETTINGS_MENU_KEY.routing]: RoutingSettings,
 }
 const allCategoryComponents: CategoryView[] = SETTINGS_CATEGORIES.map((category) => ({

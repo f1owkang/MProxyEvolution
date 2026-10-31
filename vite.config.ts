@@ -34,7 +34,21 @@ export default defineConfig({
   },
   base: './',
   // MProxy: PWA/service worker disabled; panel is served by the local Go backend.
-  plugins: [vue(), vueJsx()],
+  plugins: [
+    vue(),
+    vueJsx(),
+    {
+      name: 'mproxy-insets-css',
+      transformIndexHtml: {
+        order: 'post',
+        handler(html: string) {
+          return html
+            .replace('__MPROXY_INSETS_CSS__', '/internal/insets.css')
+            .replace(/\s+crossorigin(?:="")?/g, '')
+        },
+      },
+    },
+  ],
   build: {
     outDir: 'web/dist',
   },

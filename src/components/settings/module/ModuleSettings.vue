@@ -18,17 +18,12 @@
       :settings="settings"
       @changed="reload"
     />
-    <ConfigSection
-      :status="status"
-      @changed="reload"
-    />
     <DiagnosticsSection :status="status" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { mproxyApi, type MProxySettings, type MProxyStatus } from '@/api/mproxy'
-import ConfigSection from '@/components/mproxy/ConfigSection.vue'
 import CoreSection from '@/components/mproxy/CoreSection.vue'
 import DiagnosticsSection from '@/components/mproxy/DiagnosticsSection.vue'
 import { onMounted, onUnmounted, ref } from 'vue'
