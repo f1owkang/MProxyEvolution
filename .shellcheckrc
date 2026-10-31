@@ -1,0 +1,9 @@
+# ShellCheck configuration for MProxyEvolution.
+#
+# The module/ scripts are POSIX sh (#!/system/bin/sh) and are parsed by the
+# Android shell (mksh) in the installer. They intentionally keep the legacy
+# backtick command substitutions used across the existing code base, and
+# SKIPUNZIP is consumed by the Magisk / KernelSU / APatch installer, not by the
+# script itself. Only disable those two intentional findings; real issues are
+# expected to be fixed instead of suppressed here.
+disable=SC2006,SC2034

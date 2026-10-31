@@ -1,0 +1,9 @@
+# yamllint configuration: match the existing GitHub Actions / metadata style.
+# Workflows deliberately omit the "---" document start, keep the `on:` key
+# (which the truthy rule misreads), and use long inline shell lines.
+extends: default
+
+rules:
+  document-start: disable
+  truthy: disable
+  line-length: disable

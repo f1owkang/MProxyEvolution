@@ -32,6 +32,9 @@ jobs:
             bash -n "$f"
           done
 
+      - name: Script regression tests
+        run: bash tests/scripts_test.sh
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -54,9 +57,9 @@ jobs:
         working-directory: backend
         run: go vet ./...
 
-      - name: go test
+      - name: go test (race)
         working-directory: backend
-        run: go test ./...
+        run: go test -race ./... -count=1
 
   metadata:
     name: Module metadata validation
@@ -222,9 +225,93 @@ jobs:
           print('Module metadata validation passed')
           PY
 
+  lint:
+    name: Shell / workflow lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pin the linters so CI does not drift with the runner image.
+      - name: Install yamllint and shellcheck
+        run: |
+          python -m pip install --disable-pip-version-check 'yamllint==1.38.0' 'shellcheck-py==0.11.0.1'
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          SHELLCHECK="$(python -c 'import os, sysconfig; print(os.path.join(sysconfig.get_path("scripts"), "shellcheck"))')"
+          "$SHELLCHECK" --version
+          "$SHELLCHECK" module/*.sh scripts/*.sh
+
+      - name: yamllint
+        run: yamllint -c .yamllint .github/workflows .github/ISSUE_TEMPLATE module.yaml
+
+      - name: Setup Go (actionlint)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          GOBIN="$(go env GOPATH)/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint"
+
+  panel:
+    name: Panel lint / type-check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # dev-panel.sh fetches the panel branch commit pinned in panel.lock.
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+
+      - name: Check out panel fork (panel.lock)
+        run: bash scripts/dev-panel.sh --prepare
+
+      # Cache key uses the checked-out fork lockfile (exists only after --prepare).
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: build/panel/pnpm-lock.yaml
+
+      # Same fallback as scripts/build.sh: the fork worktree may fail the frozen
+      # install in environments where the husky prepare hook cannot run.
+      - name: Install panel dependencies
+        working-directory: build/panel
+        run: |
+          set -euo pipefail
+          if ! pnpm install --frozen-lockfile; then
+            echo "::warning::frozen install failed, retrying with --no-frozen-lockfile --ignore-scripts"
+            pnpm install --no-frozen-lockfile --ignore-scripts
+          fi
+
+      - name: Panel lint
+        working-directory: build/panel
+        run: pnpm run lint
+
+      - name: Panel type-check
+        working-directory: build/panel
+        run: pnpm run type-check
+
   build:
     name: Panel / backend / core / package
-    needs: [test, metadata]
+    needs: [test, metadata, lint, panel]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout (with submodules)

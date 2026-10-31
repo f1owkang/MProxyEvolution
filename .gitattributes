@@ -36,6 +36,8 @@ backend/** text eol=lf
 .prettierignore text eol=lf
 .release-baseline text eol=lf
 panel.lock text eol=lf
+.shellcheckrc text eol=lf
+.yamllint text eol=lf
 
 # 二进制资产不做换行转换
 *.png binary
