@@ -7,7 +7,7 @@
 <title>MihomoProxy Evolution</title>
 <!--
   MihomoProxy Evolution bootstrap（零依赖、无外部资源、非 ES module）
-  职责：调用 mproxy boot 启动本地后端，然后跳转到 http://127.0.0.1:9091/?token=...#/settings?section=moduleSettings
+  职责：调用 mproxy boot 启动本地后端，然后跳转到 http://127.0.0.1:9091/?token=...#/
   运行环境：KernelSU / KernelSU Next WebView（提供 window.ksu.exec 三参数回调）
 -->
 <style>
@@ -22,7 +22,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: calc(24px + env(safe-area-inset-top, 0px)) 18px calc(56px + env(safe-area-inset-bottom, 0px));
+    padding: calc(24px + var(--safe-area-inset-top, var(--window-inset-top, env(safe-area-inset-top, 0px)))) 18px calc(56px + var(--safe-area-inset-bottom, var(--window-inset-bottom, env(safe-area-inset-bottom, 0px))));
     -webkit-font-smoothing: antialiased;
   }
   .wrap {
@@ -182,7 +182,7 @@
 
     function normalizeUrl(url) {
       if (!url) { return ''; }
-      if (url.indexOf('#') === -1) { url += '#/settings?section=moduleSettings'; }
+      if (url.indexOf('#') === -1) { url += '#/'; }
       return url;
     }
 
@@ -273,7 +273,7 @@
         var token = readTokenFromLocation();
         var url = BASE + '/';
         if (token) { url += '?token=' + encodeURIComponent(token); }
-        redirectTo(url + '#/settings?section=moduleSettings');
+        redirectTo(url + '#/');
       }
 
       if (typeof window.fetch !== 'function') { done(false); return; }
