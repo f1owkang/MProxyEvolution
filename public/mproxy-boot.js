@@ -1,13 +1,13 @@
 /**
- * MProxy boot script.
+ * MProxyEvolution boot script.
  *
- * Runs before the zashboard bundle when the panel is served by the MProxy Go
+ * Runs before the zashboard bundle when the panel is served by the MProxyEvolution Go
  * backend. It consumes the `?token=` / `#token=` hand-off produced by
  * `mproxy boot`, exposes the token to the app, and points zashboard at the
  * same-origin `/api/mihomo` reverse proxy.
  *
  * Everything here is best-effort: if the page is opened without a token we
- * keep it alive so the MProxy page can explain what to do.
+ * keep it alive so the MProxyEvolution page can explain what to do.
  */
 ;(function () {
   'use strict'
@@ -151,7 +151,7 @@
       secondaryPath: '/api/mihomo',
       password: token,
       uuid: BACKEND_UUID,
-      label: 'MProxy',
+      label: 'MihomoProxy Evolution',
     }
   }
 

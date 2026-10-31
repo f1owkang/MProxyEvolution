@@ -89,7 +89,7 @@
 
     <SectionCard
       title="文档与帮助"
-      description="MProxy 只维护一份 config.yaml，所有设置最终都会写回该文件。"
+      description="MihomoProxy Evolution 只维护一份 config.yaml，所有设置最终都会写回该文件。"
     >
       <ul class="list-disc space-y-1.5 pl-5 text-sm">
         <li>

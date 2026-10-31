@@ -146,7 +146,7 @@ const fetchIsCoreUpdateAvailable = async () => {
 }
 
 export const checkUIUpdate = async () => {
-  // MProxy: 面板随模块一起打包/更新，不使用 mihomo 的 external-ui 更新通道。
+  // MProxyEvolution: 面板随模块一起打包/更新，不使用 mihomo 的 external-ui 更新通道。
   isUIUpdateAvailable.value = false
 }
 

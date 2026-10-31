@@ -2,7 +2,7 @@
   <section class="base-container border-primary/30 border-2 p-4">
     <div class="flex items-start justify-between gap-2">
       <div>
-        <h2 class="text-base font-semibold">欢迎使用 MProxy</h2>
+        <h2 class="text-base font-semibold">欢迎使用 MihomoProxy Evolution</h2>
         <p class="text-base-content/55 mt-0.5 text-xs">
           {{ needsCore ? '还没有安装 mihomo 内核，先完成安装。' : '还没有可用节点，先导入订阅或配置。' }}
         </p>

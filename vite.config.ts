@@ -33,7 +33,7 @@ export default defineConfig({
     __FONT__: JSON.stringify(font),
   },
   base: './',
-  // MProxy: PWA/service worker disabled; panel is served by the local Go backend.
+  // MProxyEvolution: PWA/service worker disabled; panel is served by the local Go backend.
   plugins: [
     vue(),
     vueJsx(),

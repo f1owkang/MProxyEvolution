@@ -80,7 +80,7 @@
       <label class="mt-3 flex items-center justify-between gap-3 rounded-lg bg-base-200 px-3 py-2.5">
         <span class="text-sm">
           开机自启
-          <span class="text-base-content/50 block text-xs">设备启动后自动拉起 MProxy 与内核</span>
+          <span class="text-base-content/50 block text-xs">设备启动后自动拉起 MihomoProxy Evolution 与内核</span>
         </span>
         <input
           type="checkbox"

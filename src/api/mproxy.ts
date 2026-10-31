@@ -1,7 +1,7 @@
 /**
- * MProxy `/api` client.
+ * MProxyEvolution `/api` client.
  *
- * The zashboard bundle is served by the MProxy Go backend on the same origin.
+ * The zashboard bundle is served by the MProxyEvolution Go backend on the same origin.
  * `public/mproxy-boot.js` stores the hand-off token in
  * `sessionStorage['mproxy/token']` and `window.__MPROXY_TOKEN__`; every call
  * sends it as `X-MProxy-Token` (the backend also accepts `Authorization`).
@@ -544,7 +544,7 @@ export const mproxyApi = {
   getPackages: (type: 'user' | 'system' | 'all' = 'user') =>
     request<PackagesResponse>('/api/packages', { query: { type } }),
 
-  // 5.4 MProxy page
+  // 5.4 MProxyEvolution page
   getSettings: () => request<MProxySettings>('/api/mproxy/settings'),
   patchSettings: (patch: MProxySettingsPatch) =>
     request<MProxySettings>('/api/mproxy/settings', {

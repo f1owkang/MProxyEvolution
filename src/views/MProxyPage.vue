@@ -170,7 +170,7 @@ const loadStatus = async () => {
     error.value = ''
     hasToken.value = hasMProxyToken()
   } catch (e) {
-    error.value = `无法连接 MProxy 后端：${describeError(e)}`
+    error.value = `无法连接 MihomoProxy Evolution 后端：${describeError(e)}`
   }
 }
 

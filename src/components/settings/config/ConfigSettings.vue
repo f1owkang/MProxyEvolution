@@ -22,7 +22,7 @@ const load = async () => {
     status.value = await mproxyApi.status()
     error.value = ''
   } catch (e) {
-    error.value = `无法连接 MProxy 后端：${e instanceof Error ? e.message : String(e)}`
+    error.value = `无法连接 MihomoProxy Evolution 后端：${e instanceof Error ? e.message : String(e)}`
   }
 }
 
