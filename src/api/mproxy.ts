@@ -235,6 +235,8 @@ export type MProxySettings = {
     updateChannel: UpdateChannel
     ghproxy: string
     onboarded: boolean
+    /** Private DNS 策略：auto=TUN 运行时临时关闭；keep=不修改系统设置（旧后端可能缺失）。 */
+    privateDNS?: 'auto' | 'keep'
   }
   coreVersion: string
   abi: string

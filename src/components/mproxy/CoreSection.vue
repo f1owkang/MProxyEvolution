@@ -112,6 +112,25 @@
         />
       </label>
 
+      <div class="bg-base-200 mt-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5">
+        <span class="text-sm">
+          Private DNS
+          <span class="text-base-content/50 block text-xs"
+            >TUN 运行时临时关闭系统 Private DNS，避免 DoT 绕过 fake-ip；keep
+            则保持系统设置不变</span
+          >
+        </span>
+        <select
+          class="select select-xs"
+          :value="settings?.x.privateDNS ?? 'auto'"
+          :disabled="busy || !settings"
+          @change="changePrivateDNS(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="auto">自动关闭（推荐）</option>
+          <option value="keep">保持系统设置</option>
+        </select>
+      </div>
+
       <div
         v-if="job"
         class="mt-3"
@@ -301,6 +320,15 @@ const changeChannel = async (value: string) => {
 const toggleAutoStart = async (value: boolean) => {
   try {
     await mproxyApi.patchSettings({ autoStart: value })
+    emit('changed')
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+const changePrivateDNS = async (value: string) => {
+  try {
+    await mproxyApi.patchSettings({ privateDNS: value === 'keep' ? 'keep' : 'auto' })
     emit('changed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
