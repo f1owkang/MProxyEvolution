@@ -152,6 +152,23 @@ useKeyboard()
 </template>
 
 <style>
+:root {
+  /* 系统栏安全区回退链（参考 CRecordEvolution）：新版 KSU 注入 --safe-area-inset-*，
+     旧版 insets.css 提供 --window-inset-*，浏览器兜底 env()，最后 0。 */
+  --inset-top: var(--safe-area-inset-top, var(--window-inset-top, env(safe-area-inset-top, 0px)));
+  --inset-right: var(
+    --safe-area-inset-right,
+    var(--window-inset-right, env(safe-area-inset-right, 0px))
+  );
+  --inset-bottom: var(
+    --safe-area-inset-bottom,
+    var(--window-inset-bottom, env(safe-area-inset-bottom, 0px))
+  );
+  --inset-left: var(
+    --safe-area-inset-left,
+    var(--window-inset-left, env(safe-area-inset-left, 0px))
+  );
+}
 .status-bar-tint {
   display: none;
 }
@@ -173,8 +190,8 @@ useKeyboard()
 
 .app-toast-region {
   position: fixed;
-  top: calc(0.75rem + var(--safe-area-inset-top, 0px));
-  right: calc(0.75rem + var(--safe-area-inset-right, 0px));
+  top: calc(0.75rem + var(--inset-top));
+  right: calc(0.75rem + var(--inset-right));
   z-index: 100000;
   display: flex;
   width: min(24rem, calc(100vw - 1.5rem));
@@ -185,8 +202,8 @@ useKeyboard()
 
 @media (min-width: 768px) {
   .app-toast-region {
-    top: calc(2.75rem + var(--safe-area-inset-top, 0px));
-    right: calc(1rem + var(--safe-area-inset-right, 0px));
+    top: calc(2.75rem + var(--inset-top));
+    right: calc(1rem + var(--inset-right));
   }
 }
 
