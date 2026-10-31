@@ -1,0 +1,18 @@
+# 生成目录、上游子模块与依赖不参与格式化
+upstream/
+build/
+dist/
+.devdata/
+node_modules/
+module/webroot/
+backend/internal/webui/dist/
+
+# 文档保持人工排版（README 中英对齐、表格是刻意手排的）
+*.md
+docs/
+
+# 锁文件由包管理器生成
+pnpm-lock.yaml
+
+# 第三方许可证文本保持原样
+THIRD_PARTY_NOTICES.txt

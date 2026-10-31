@@ -1,0 +1,51 @@
+# 统一换行：Windows 检出若受 core.autocrlf 影响，设备端脚本会变成 CRLF，
+# 直接打包会让 mksh 报 “unexpected word (expecting do)” 之类错误。
+* text=auto
+
+# 设备端脚本 / 模块文件 / WebUI / 后端必须 LF
+*.sh text eol=lf
+*.bash text eol=lf
+*.txt text eol=lf
+module/** text eol=lf
+overlay/** text eol=lf
+backend/** text eol=lf
+.github/** text eol=lf
+
+# 构建脚本：Windows 用 CRLF，其余平台脚本 LF
+*.ps1 text eol=crlf
+
+# 源码与配置统一 LF，避免 Windows 检出后 gofmt -l / 解析器误报
+*.go text eol=lf
+*.vue text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.prop text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+.prettierrc.json text eol=lf
+.prettierignore text eol=lf
+.release-baseline text eol=lf
+panel.lock text eol=lf
+
+# 二进制资产不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.woff binary
+*.woff2 binary

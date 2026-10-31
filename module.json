@@ -1,0 +1,5 @@
+{
+  "metamodule": false,
+  "sourceUrl": "https://github.com/f1owkang/MProxyEvolution",
+  "summary": "🌐 mihomo 内核 + zashboard 面板的 KernelSU/Magisk 网络代理模块，全 WebUI 管理，TUN 透明代理、订阅导入与应用分流。 | A KernelSU/Magisk network proxy module powered by mihomo and the zashboard panel, fully managed in its WebUI with TUN transparent proxy, subscription import and per-app routing."
+}

@@ -1,0 +1,555 @@
+diff --git a/index.html b/index.html
+index e27dd98..c3b7ad2 100644
+--- a/index.html
++++ b/index.html
+@@ -3,4 +3,5 @@
+     <meta charset="UTF-8" />
++    <script src="./mproxy-boot.js"></script>
+     <title>zashboard</title>
+     <meta
+       name="viewport"
+diff --git a/src/constant/index.ts b/src/constant/index.ts
+index d3e1c77..c10920a 100644
+--- a/src/constant/index.ts
++++ b/src/constant/index.ts
+@@ -4,6 +4,7 @@ import {
+   CubeTransparentIcon,
+   DocumentTextIcon,
+   GlobeAltIcon,
++  ShieldCheckIcon,
+   Squares2X2Icon,
+   SwatchIcon,
+ } from '@heroicons/vue/24/outline'
+@@ -251,6 +252,7 @@ export enum ROUTE_NAME {
+   rules = 'rules',
+   settings = 'settings',
+   setup = 'setup',
++  mproxy = 'mproxy',
+ }
+ 
+ export const ROUTE_ICON_MAP = {
+@@ -261,6 +263,7 @@ export const ROUTE_ICON_MAP = {
+   [ROUTE_NAME.logs]: DocumentTextIcon,
+   [ROUTE_NAME.settings]: Cog6ToothIcon,
+   [ROUTE_NAME.setup]: CubeTransparentIcon,
++  [ROUTE_NAME.mproxy]: ShieldCheckIcon,
+ }
+ 
+ export enum TABLE_SIZE {
+diff --git a/src/i18n/en.ts b/src/i18n/en.ts
+index ba8651c..a4cdb22 100644
+--- a/src/i18n/en.ts
++++ b/src/i18n/en.ts
+@@ -651,6 +651,15 @@ const en = {
+   daeGeneration: 'Generation',
+   daeConfigRevision: 'Config revision',
+   daeMissingInputs: 'Missing inputs',
++  mproxy: 'MihomoProxy Evolution',
++  mproxyCore: 'Kernel',
++  mproxyConfig: 'Config',
++  mproxySubscription: 'Subscription',
++  mproxyApps: 'App routing',
++  mproxyDiagnostics: 'Diagnostics',
++  mproxyOnboarding: 'Getting started',
++  mproxyNoToken: 'Access token not found. Reopen this page from the MihomoProxy Evolution entry in KernelSU.',
++  mproxyBackendOffline: 'Backend unavailable',
+ }
+ 
+ export type LANG_MESSAGE = typeof en
+diff --git a/src/i18n/ru.ts b/src/i18n/ru.ts
+index c3e8bbd..9e010c1 100644
+--- a/src/i18n/ru.ts
++++ b/src/i18n/ru.ts
+@@ -654,6 +654,15 @@ const ru: LANG_MESSAGE = {
+   daeGeneration: 'Поколение',
+   daeConfigRevision: 'Ревизия конфигурации',
+   daeMissingInputs: 'Не хватает данных',
++  mproxy: 'MihomoProxy Evolution',
++  mproxyCore: 'Ядро',
++  mproxyConfig: 'Конфигурация',
++  mproxySubscription: 'Подписка',
++  mproxyApps: 'Маршрутизация приложений',
++  mproxyDiagnostics: 'Диагностика',
++  mproxyOnboarding: 'Быстрый старт',
++  mproxyNoToken: 'Токен доступа не найден. Откройте эту страницу через MihomoProxy Evolution в KernelSU.',
++  mproxyBackendOffline: 'Бэкенд недоступен',
+ }
+ 
+ export default ru
+diff --git a/src/i18n/zh-tw.ts b/src/i18n/zh-tw.ts
+index 45dd7dc..6e53ff4 100644
+--- a/src/i18n/zh-tw.ts
++++ b/src/i18n/zh-tw.ts
+@@ -636,6 +636,15 @@ const zhTW: LANG_MESSAGE = {
+   daeGeneration: '設定代次',
+   daeConfigRevision: '設定版本',
+   daeMissingInputs: '缺少輸入',
++  mproxy: 'MihomoProxy Evolution',
++  mproxyCore: '內核',
++  mproxyConfig: '設定',
++  mproxySubscription: '訂閱',
++  mproxyApps: '應用分流',
++  mproxyDiagnostics: '診斷',
++  mproxyOnboarding: '快速開始',
++  mproxyNoToken: '未取得存取權杖，請從 KernelSU 中的 MihomoProxy Evolution 入口重新開啟本頁面。',
++  mproxyBackendOffline: '後端未連線',
+ }
+ 
+ export default zhTW
+diff --git a/src/i18n/zh.ts b/src/i18n/zh.ts
+index 3d60483..e258eaf 100644
+--- a/src/i18n/zh.ts
++++ b/src/i18n/zh.ts
+@@ -636,6 +636,15 @@ const zh: LANG_MESSAGE = {
+   daeGeneration: '配置代次',
+   daeConfigRevision: '配置版本',
+   daeMissingInputs: '缺失输入',
++  mproxy: 'MihomoProxy Evolution',
++  mproxyCore: '内核',
++  mproxyConfig: '配置',
++  mproxySubscription: '订阅',
++  mproxyApps: '应用分流',
++  mproxyDiagnostics: '诊断',
++  mproxyOnboarding: '快速开始',
++  mproxyNoToken: '未获取到访问令牌，请从 KernelSU 中的 MihomoProxy Evolution 入口重新打开本页面。',
++  mproxyBackendOffline: '后端未连接',
+ }
+ 
+ export default zh
+diff --git a/src/router/index.ts b/src/router/index.ts
+index 503d456..6a9e006 100644
+--- a/src/router/index.ts
++++ b/src/router/index.ts
+@@ -6,6 +6,7 @@ import { activeBackend } from '@/store/setup'
+ import ConnectionsPage from '@/views/ConnectionsPage.vue'
+ import HomePage from '@/views/HomePage.vue'
+ import LogsPage from '@/views/LogsPage.vue'
++import MProxyPage from '@/views/MProxyPage.vue'
+ import OverviewPage from '@/views/OverviewPage.vue'
+ import ProxiesPage from '@/views/ProxiesPage.vue'
+ import RulesPage from '@/views/RulesPage.vue'
+@@ -46,6 +47,11 @@ const childrenRouter = [
+     name: ROUTE_NAME.settings,
+     component: SettingsPage,
+   },
++  {
++    path: 'mproxy',
++    name: ROUTE_NAME.mproxy,
++    component: MProxyPage,
++  },
+ ]
+ 
+ const router = createRouter({
+diff --git a/vite.config.ts b/vite.config.ts
+index 47d9c94..625f38c 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -3,7 +3,6 @@ import vueJsx from '@vitejs/plugin-vue-jsx'
+ import { execSync } from 'child_process'
+ import { fileURLToPath, URL } from 'node:url'
+ import { defineConfig } from 'vite'
+-import { VitePWA } from 'vite-plugin-pwa'
+ import { version } from './package.json'
+ 
+ const getGitCommitId = (): string => {
+@@ -34,55 +33,11 @@ export default defineConfig({
+     __FONT__: JSON.stringify(font),
+   },
+   base: './',
+-  plugins: [
+-    vue(),
+-    vueJsx(),
+-    VitePWA({
+-      registerType: 'autoUpdate',
+-      includeAssets: ['favicon.svg', 'favicon-dark.svg'],
+-      workbox: {
+-        // The globe is lazy-loaded, but its local textures and bundled attribution must
+-        // remain available after the first PWA install/update for offline cache reuse.
+-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webp,jpg,md}'],
+-        // The main chunk sits at ~1.75 MiB — under Workbox's 2 MiB default, but not
+-        // by enough to rely on. Keep the ceiling raised so it can't silently fall out
+-        // of the precache (and stop working offline) the next time it grows a little.
+-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+-      },
+-      manifest: {
+-        name: 'zashboard',
+-        short_name: 'zashboard',
+-        description: 'a dashboard using clash api',
+-        theme_color: '#000000',
+-        icons: [
+-          {
+-            src: './pwa-192x192.png',
+-            sizes: '192x192',
+-            type: 'image/png',
+-            purpose: 'any',
+-          },
+-          {
+-            src: './pwa-512x512.png',
+-            sizes: '512x512',
+-            type: 'image/png',
+-            purpose: 'any',
+-          },
+-          {
+-            src: './pwa-maskable-192x192.png',
+-            sizes: '192x192',
+-            type: 'image/png',
+-            purpose: 'maskable',
+-          },
+-          {
+-            src: './pwa-maskable-512x512.png',
+-            sizes: '512x512',
+-            type: 'image/png',
+-            purpose: 'maskable',
+-          },
+-        ],
+-      },
+-    }),
+-  ],
++  // MProxyEvolution: PWA/service worker disabled; panel is served by the local Go backend.
++  plugins: [vue(), vueJsx()],
++  build: {
++    outDir: 'web/dist',
++  },
+   resolve: {
+     alias: {
+       '@': fileURLToPath(new URL('./src', import.meta.url)),
+--- a/src/assembly/backend.ts
++++ b/src/assembly/backend.ts
+@@ -76,7 +76,7 @@
+   return {
+     coreUpgrade: mihomoOrForkCore,
+     coreRestart: mihomoOrForkCore,
+-    dashboardUpgrade: mihomoOrForkCore,
++    dashboardUpgrade: false,
+     reloadConfigs: mihomoOrForkCore,
+     updateConfigs: mihomoOrForkCore,
+     updateGeoDatabase: mihomoOrForkCore,
+@@ -153,3 +153,4 @@
+ 
+   return soft.value[cap] === true
+ }
++
+--- a/src/assembly/version.ts
++++ b/src/assembly/version.ts
+@@ -4,7 +4,7 @@
+ import { MIHOMO, MIHOMO_CHANNEL } from '@/constant'
+ import { fetchWithLocalCache } from '@/helper/cache'
+ import { getRequestErrorMessage } from '@/helper/request-error'
+-import { autoUpgradeCore, autoUpgradeDashboard, checkUpgradeCore } from '@/store/settings'
++import { autoUpgradeCore, checkUpgradeCore } from '@/store/settings'
+ import { activeBackend } from '@/store/setup'
+ import type { Backend } from '@/types'
+ import { computed, nextTick, ref } from 'vue'
+@@ -146,14 +146,9 @@
+ }
+ 
+ export const checkUIUpdate = async () => {
+-  const { tag_name } = await fetchWithLocalCache<{ tag_name: string }>(
+-    'https://api.github.com/repos/Zephyruso/zashboard/releases/latest',
+-    zashboardVersion.value,
+-  )
++  // MProxyEvolution: 面板随模块一起打包/更新，不使用 mihomo 的 external-ui 更新通道。
++  isUIUpdateAvailable.value = false
++}
+ 
+-  isUIUpdateAvailable.value = Boolean(tag_name && tag_name !== `v${zashboardVersion.value}`)
+ 
+-  if (isUIUpdateAvailable.value && autoUpgradeDashboard.value) {
+-    upgradeUI().catch(() => {})
+-  }
+-}
++
+--- a/src/constant/index.ts
++++ b/src/constant/index.ts
+@@ -398,6 +398,9 @@
+   proxies = 'proxySettings',
+   connections = 'connectionSettings',
+   overview = 'overviewSettings',
++  module = 'moduleSettings',
++  subscription = 'subscriptionSettings',
++  routing = 'routingSettings',
+ }
+ 
+ export enum OVERVIEW_CARD {
+--- a/src/config/settings-items.ts
++++ b/src/config/settings-items.ts
+@@ -1,5 +1,5 @@
+ import { ROUTE_ICON_MAP, ROUTE_NAME, SETTINGS_MENU_KEY } from '@/constant'
+-import { HomeIcon, ServerIcon } from '@heroicons/vue/24/outline'
++import { CloudArrowDownIcon, FunnelIcon, HomeIcon, ServerIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
+ import type { Component } from 'vue'
+ 
+ export type SettingsCategoryItem = {
+@@ -19,6 +19,9 @@
+ }
+ 
+ export const DEFAULT_SETTINGS_MENU_ORDER = [
++  SETTINGS_MENU_KEY.module,
++  SETTINGS_MENU_KEY.subscription,
++  SETTINGS_MENU_KEY.routing,
+   SETTINGS_MENU_KEY.backend,
+   SETTINGS_MENU_KEY.general,
+   SETTINGS_MENU_KEY.overview,
+@@ -32,9 +35,44 @@
+   [SETTINGS_MENU_KEY.proxies]: 'settingsMenuProxies',
+   [SETTINGS_MENU_KEY.connections]: 'settingsMenuConnections',
+   [SETTINGS_MENU_KEY.overview]: 'settingsMenuOverview',
++  [SETTINGS_MENU_KEY.module]: 'settingsMenuModule',
++  [SETTINGS_MENU_KEY.subscription]: 'settingsMenuSubscription',
++  [SETTINGS_MENU_KEY.routing]: 'settingsMenuRouting',
+ }
+ 
+ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
++  {
++    key: SETTINGS_MENU_KEY.subscription,
++    label: 'settingsMenuSubscription',
++    description: 'settingsDescriptionSubscription',
++    icon: CloudArrowDownIcon,
++    items: [
++      { key: `${SETTINGS_MENU_KEY.subscription}.import`, label: 'mproxySubscription', section: 'settingsSectionModuleSubscription' },
++      { key: `${SETTINGS_MENU_KEY.subscription}.providers`, label: 'settingsMenuSubscription', section: 'settingsSectionModuleSubscription' },
++    ],
++  },
++  {
++    key: SETTINGS_MENU_KEY.routing,
++    label: 'settingsMenuRouting',
++    description: 'settingsDescriptionRouting',
++    icon: FunnelIcon,
++    items: [
++      { key: `${SETTINGS_MENU_KEY.routing}.apps`, label: 'mproxyApps', section: 'settingsSectionModuleApps' },
++    ],
++  },
++  {
++    key: SETTINGS_MENU_KEY.module,
++    label: 'settingsMenuModule',
++    description: 'settingsDescriptionModule',
++    icon: ShieldCheckIcon,
++    items: [
++      { key: `${SETTINGS_MENU_KEY.module}.core`, label: 'mproxyCore', section: 'settingsSectionModuleCore' },
++      { key: `${SETTINGS_MENU_KEY.module}.config`, label: 'mproxyConfig', section: 'settingsSectionModuleConfig' },
++      { key: `${SETTINGS_MENU_KEY.module}.subscription`, label: 'mproxySubscription', section: 'settingsSectionModuleSubscription' },
++      { key: `${SETTINGS_MENU_KEY.module}.apps`, label: 'mproxyApps', section: 'settingsSectionModuleApps' },
++      { key: `${SETTINGS_MENU_KEY.module}.diagnostics`, label: 'mproxyDiagnostics', section: 'settingsSectionModuleDiagnostics' },
++    ],
++  },
+   {
+     key: SETTINGS_MENU_KEY.backend,
+     label: 'backendSettings',
+@@ -463,3 +501,4 @@
+   const category = SETTINGS_CATEGORIES.find((c) => c.key === categoryKey)
+   return Object.fromEntries((category?.items ?? []).map((i) => [i.label, i.key]))
+ }
++
+--- a/src/views/SettingsPage.vue
++++ b/src/views/SettingsPage.vue
+@@ -246,6 +246,9 @@
+ import SelectInput from '@/components/common/SelectInput.vue'
+ import BackendSettings from '@/components/settings/backend/BackendSettings.vue'
+ import ConnectionsSettings from '@/components/settings/connections/ConnectionsSettings.vue'
++import ModuleSettings from '@/components/settings/module/ModuleSettings.vue'
++import RoutingSettings from '@/components/settings/routing/RoutingSettings.vue'
++import SubscriptionSettings from '@/components/settings/subscription/SubscriptionSettings.vue'
+ import ZashboardSettings from '@/components/settings/general/ZashboardSettings.vue'
+ import OverviewSettings from '@/components/settings/overview/OverviewSettings.vue'
+ import ProxiesSettings from '@/components/settings/proxies/ProxiesSettings.vue'
+@@ -320,6 +323,9 @@
+   [SETTINGS_MENU_KEY.backend]: BackendSettings,
+   [SETTINGS_MENU_KEY.proxies]: ProxiesSettings,
+   [SETTINGS_MENU_KEY.connections]: ConnectionsSettings,
++  [SETTINGS_MENU_KEY.module]: ModuleSettings,
++  [SETTINGS_MENU_KEY.subscription]: SubscriptionSettings,
++  [SETTINGS_MENU_KEY.routing]: RoutingSettings,
+ }
+ const allCategoryComponents: CategoryView[] = SETTINGS_CATEGORIES.map((category) => ({
+   ...category,
+--- a/src/helper/index.ts
++++ b/src/helper/index.ts
+@@ -95,6 +95,7 @@
+ export const renderRoutes = computed(() =>
+   Object.values(ROUTE_NAME).filter((r) => {
+     if (r === ROUTE_NAME.setup) return false
++    if (r === ROUTE_NAME.mproxy) return false
+     if (!splitOverviewPage.value && r === ROUTE_NAME.overview) return false
+     return true
+   }),
+--- a/src/i18n/en.ts
++++ b/src/i18n/en.ts
+@@ -460,8 +460,14 @@
+   settingsMenuProxies: 'Proxies',
+   settingsMenuConnections: 'Connections',
+   settingsMenuOverview: 'Overview',
++  settingsMenuModule: 'Module',
++  settingsMenuSubscription: 'Subscriptions',
++  settingsMenuRouting: 'Routing',
+   settingsDescriptionGeneral: 'Themes, app updates, data sources, and interaction preferences',
+   settingsDescriptionOverview: 'Overview cards, startup checks, and the desktop sidebar',
++  settingsDescriptionModule: 'MihomoProxy Evolution kernel, config, subscriptions and app routing',
++  settingsDescriptionSubscription: 'Subscription links, file/paste import and providers',
++  settingsDescriptionRouting: 'Per-app proxy routing (TUN)',
+   settingsDescriptionBackend: 'Active backend, core maintenance, and network listeners',
+   settingsDescriptionProxies: 'Latency tests, proxy group display, and icons',
+   settingsDescriptionConnections: 'Connection display, table options, and client identification',
+@@ -483,6 +489,11 @@
+   settingsSectionStartupChecks: 'Startup checks',
+   settingsSectionDesktopSidebar: 'Desktop sidebar',
+   settingsSectionCurrentBackend: 'Current backend',
++  settingsSectionModuleCore: 'Core',
++  settingsSectionModuleConfig: 'Config',
++  settingsSectionModuleSubscription: 'Subscription',
++  settingsSectionModuleApps: 'App routing',
++  settingsSectionModuleDiagnostics: 'Diagnostics',
+   settingsSectionCoreOperations: 'Core maintenance',
+   settingsSectionNetworkListening: 'Network listeners',
+   settingsSectionCoreUpdates: 'Core updates',
+--- a/src/i18n/zh.ts
++++ b/src/i18n/zh.ts
+@@ -448,8 +448,14 @@
+   settingsMenuProxies: '代理',
+   settingsMenuConnections: '连接',
+   settingsMenuOverview: '概览',
++  settingsMenuModule: '模块',
++  settingsMenuSubscription: '订阅',
++  settingsMenuRouting: '分流',
+   settingsDescriptionGeneral: '主题、应用更新、数据源与交互偏好',
+   settingsDescriptionOverview: '概览卡片、启动检查与桌面侧栏',
++  settingsDescriptionModule: 'MihomoProxy Evolution 内核、配置、订阅与应用分流',
++  settingsDescriptionSubscription: '订阅链接、文件/粘贴导入与 provider 管理',
++  settingsDescriptionRouting: '按应用分流（TUN）',
+   settingsDescriptionBackend: '当前后端、内核运维与网络监听',
+   settingsDescriptionProxies: '测速、代理组展示与图标',
+   settingsDescriptionConnections: '连接展示、表格参数与客户端识别',
+@@ -470,6 +476,11 @@
+   settingsSectionStartupChecks: '启动检查',
+   settingsSectionDesktopSidebar: '桌面侧栏',
+   settingsSectionCurrentBackend: '当前后端',
++  settingsSectionModuleCore: '内核',
++  settingsSectionModuleConfig: '配置',
++  settingsSectionModuleSubscription: '订阅',
++  settingsSectionModuleApps: '应用分流',
++  settingsSectionModuleDiagnostics: '诊断',
+   settingsSectionCoreOperations: '内核运维',
+   settingsSectionNetworkListening: '网络监听',
+   settingsSectionCoreUpdates: '内核更新',
+--- a/src/i18n/zh-tw.ts
++++ b/src/i18n/zh-tw.ts
+@@ -448,8 +448,14 @@
+   settingsMenuProxies: '代理',
+   settingsMenuConnections: '連接',
+   settingsMenuOverview: '概覽',
++  settingsMenuModule: '模組',
++  settingsMenuSubscription: '訂閱',
++  settingsMenuRouting: '分流',
+   settingsDescriptionGeneral: '主題、應用更新、資料來源與互動偏好',
+   settingsDescriptionOverview: '概覽卡片、啟動檢查與桌面側欄',
++  settingsDescriptionModule: 'MihomoProxy Evolution 內核、設定、訂閱與應用分流',
++  settingsDescriptionSubscription: '訂閱連結、檔案/貼上匯入與 provider 管理',
++  settingsDescriptionRouting: '按應用分流（TUN）',
+   settingsDescriptionBackend: '目前後端、核心維護與網路監聽',
+   settingsDescriptionProxies: '測速、代理群組顯示與圖示',
+   settingsDescriptionConnections: '連接顯示、表格參數與用戶端識別',
+@@ -470,6 +476,11 @@
+   settingsSectionStartupChecks: '啟動檢查',
+   settingsSectionDesktopSidebar: '桌面側欄',
+   settingsSectionCurrentBackend: '目前後端',
++  settingsSectionModuleCore: '內核',
++  settingsSectionModuleConfig: '設定',
++  settingsSectionModuleSubscription: '訂閱',
++  settingsSectionModuleApps: '應用分流',
++  settingsSectionModuleDiagnostics: '診斷',
+   settingsSectionCoreOperations: '核心維護',
+   settingsSectionNetworkListening: '網路監聽',
+   settingsSectionCoreUpdates: '核心更新',
+--- a/src/i18n/ru.ts
++++ b/src/i18n/ru.ts
+@@ -463,8 +463,14 @@
+   settingsMenuProxies: 'Прокси',
+   settingsMenuConnections: 'Подключения',
+   settingsMenuOverview: 'Обзор',
++  settingsMenuModule: 'Модуль',
++  settingsMenuSubscription: 'Подписки',
++  settingsMenuRouting: 'Маршрутизация',
+   settingsDescriptionGeneral: 'Темы, обновления, источники данных и управление',
+   settingsDescriptionOverview: 'Карточки обзора, проверки запуска и боковая панель',
++  settingsDescriptionModule: 'Ядро, конфигурация, подписки и маршрутизация MihomoProxy Evolution',
++  settingsDescriptionSubscription: 'Ссылки, импорт файлов/вставки и provider',
++  settingsDescriptionRouting: 'Маршрутизация приложений (TUN)',
+   settingsDescriptionBackend: 'Активный бэкенд, обслуживание ядра и сетевые порты',
+   settingsDescriptionProxies: 'Тесты задержки, отображение групп и иконки',
+   settingsDescriptionConnections: 'Отображение соединений, таблица и клиенты',
+@@ -485,6 +491,11 @@
+   settingsSectionStartupChecks: 'Проверки при запуске',
+   settingsSectionDesktopSidebar: 'Боковая панель',
+   settingsSectionCurrentBackend: 'Текущий бэкенд',
++  settingsSectionModuleCore: 'Ядро',
++  settingsSectionModuleConfig: 'Конфигурация',
++  settingsSectionModuleSubscription: 'Подписка',
++  settingsSectionModuleApps: 'Маршрутизация',
++  settingsSectionModuleDiagnostics: 'Диагностика',
+   settingsSectionCoreOperations: 'Обслуживание ядра',
+   settingsSectionNetworkListening: 'Сетевые порты',
+   settingsSectionCoreUpdates: 'Обновления ядра',
+--- a/src/components/common/BackendSwitchToast.vue
++++ b/src/components/common/BackendSwitchToast.vue
+@@ -3,5 +3,5 @@
+     <div
+       v-if="visible && activeBackend"
+-      class="pointer-events-none fixed inset-x-0 top-0 z-[100001] flex justify-end pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pr-[calc(0.75rem+env(safe-area-inset-right,0px))] pl-3"
++      class="pointer-events-none fixed inset-x-0 top-0 z-[100001] flex justify-end pt-[calc(0.75rem+var(--safe-area-inset-top, 0px))] pr-[calc(0.75rem+var(--safe-area-inset-right, 0px))] pl-3"
+     >
+       <div
+--- a/src/components/common/CtrlsBar.vue
++++ b/src/components/common/CtrlsBar.vue
+@@ -1,5 +1,5 @@
+ <template>
+   <div
+-    class="bg-base-100 overlay-glass fixed top-0 right-0 left-0 z-30 pt-[env(safe-area-inset-top,0px)] shadow-xs backdrop-blur-xl"
++    class="bg-base-100 overlay-glass fixed top-0 right-0 left-0 z-30 pt-[var(--safe-area-inset-top, 0px)] shadow-xs backdrop-blur-xl"
+     :class="[isMiddleScreen ? 'fixed' : 'sticky', { 'md:bg-base-100/50': !solid }]"
+     ref="ctrlsBarRef"
+--- a/src/components/common/DialogWrapper.vue
++++ b/src/components/common/DialogWrapper.vue
+@@ -58,6 +58,6 @@
+             :class="
+               noPadding
+-                ? 'p-0 max-md:pb-[env(safe-area-inset-bottom)]'
+-                : 'p-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]'
++                ? 'p-0 max-md:pb-[var(--safe-area-inset-bottom, 0px)]'
++                : 'p-4 max-md:pb-[calc(1rem+var(--safe-area-inset-bottom, 0px))]'
+             "
+           >
+--- a/src/views/HomePage.vue
++++ b/src/views/HomePage.vue
+@@ -36,5 +36,5 @@
+             class="tab-bar absolute right-3 left-3 z-30"
+             :style="{
+-              bottom: 'calc(var(--spacing) * 2 + env(safe-area-inset-bottom))',
++              bottom: 'calc(var(--spacing) * 2 + var(--safe-area-inset-bottom, 0px))',
+               '--tab-count': renderRoutes.length,
+               '--tab-index': Math.max(renderRoutes.indexOf(route.name as ROUTE_NAME), 0),
+@@ -73,5 +73,5 @@
+                 rgba(0, 0, 0, 0) 100%
+               );
+-              height: env(safe-area-inset-bottom);
++              height: var(--safe-area-inset-bottom, 0px);
+             "
+           ></div>
+--- a/src/App.vue
++++ b/src/App.vue
+@@ -174,6 +174,6 @@
+ .app-toast-region {
+   position: fixed;
+-  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+-  right: calc(0.75rem + env(safe-area-inset-right, 0px));
++  top: calc(0.75rem + var(--safe-area-inset-top, 0px));
++  right: calc(0.75rem + var(--safe-area-inset-right, 0px));
+   z-index: 100000;
+   display: flex;
+@@ -186,6 +186,6 @@
+ @media (min-width: 768px) {
+   .app-toast-region {
+-    top: calc(2.75rem + env(safe-area-inset-top, 0px));
+-    right: calc(1rem + env(safe-area-inset-right, 0px));
++    top: calc(2.75rem + var(--safe-area-inset-top, 0px));
++    right: calc(1rem + var(--safe-area-inset-right, 0px));
+   }
+ }

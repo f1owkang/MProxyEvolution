@@ -1,0 +1,6 @@
+[submodule "upstream/zashboard"]
+	path = upstream/zashboard
+	url = https://github.com/Zephyruso/zashboard.git
+[submodule "upstream/mihomo"]
+	path = upstream/mihomo
+	url = https://github.com/MetaCubeX/mihomo.git

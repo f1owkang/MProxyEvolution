@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安装与使用文档 / Installation & usage
+    url: https://github.com/f1owkang/MProxyEvolution/blob/main/README.md#安装
+    about: 刷入流程、首次配置、面板访问与升级说明
+  - name: 常见问题 / FAQ
+    url: https://github.com/f1owkang/MProxyEvolution/blob/main/README.md#常见问题
+    about: TUN、DNS、订阅导入、分流与日志排查
+  - name: 最新版本 / Latest release
+    url: https://github.com/f1owkang/MProxyEvolution/releases
+    about: 下载最新模块包，确认问题是否已在最新版修复

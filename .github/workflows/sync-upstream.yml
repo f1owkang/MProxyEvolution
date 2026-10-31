@@ -1,0 +1,131 @@
+name: Sync upstream
+
+# 每日 + 手动：
+# - mihomo：把 upstream/mihomo submodule 更新到最新 release tag；
+# - zashboard：MProxyEvolution 使用 fork + git merge。zashboard 在 `panel` 分支上保留完整上游历史，
+#   本工作流把上游 release tag merge 进 panel 分支，并更新 panel.lock 发 PR。
+#
+# 注意：mihomo 的 main 分支内容曾出现异常，因此 mihomo 只认 release tag；zashboard 也只
+# merge release tag，不跟 main HEAD。
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 同步上游 release tag
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout（main + mihomo submodule）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 解析上游最新 release tag
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          MIHOMO_TAG="$(gh api repos/MetaCubeX/mihomo/releases/latest --jq '.tag_name')"
+          ZASHBOARD_TAG="$(gh api repos/Zephyruso/zashboard/releases/latest --jq '.tag_name')"
+          [ -n "$MIHOMO_TAG" ] && [ "$MIHOMO_TAG" != "null" ]
+          [ -n "$ZASHBOARD_TAG" ] && [ "$ZASHBOARD_TAG" != "null" ]
+          echo "mihomo=$MIHOMO_TAG" >> "$GITHUB_OUTPUT"
+          echo "zashboard=$ZASHBOARD_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 更新 mihomo submodule 到 release tag
+        env:
+          MIHOMO_TAG: ${{ steps.latest.outputs.mihomo }}
+        run: |
+          set -euo pipefail
+          git -C upstream/mihomo fetch --tags --force origin
+          git -C upstream/mihomo rev-parse --verify "refs/tags/${MIHOMO_TAG}^{commit}" >/dev/null
+          git -C upstream/mihomo checkout --detach "$MIHOMO_TAG"
+          git add upstream/mihomo
+
+      # ---------------------------------------------------------------------
+      # zashboard fork：panel 分支承担 MProxyEvolution 提交；上游升级用三方 merge，
+      # 不再对上游源码应用文本 patch。
+      # ---------------------------------------------------------------------
+      - name: Merge zashboard upstream tag into panel fork
+        id: panel
+        env:
+          ZASHBOARD_TAG: ${{ steps.latest.outputs.zashboard }}
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/panel:refs/remotes/origin/panel'
+          rm -rf /tmp/mproxy-panel
+          git branch -f panel origin/panel
+          git worktree add --detach /tmp/mproxy-panel panel
+
+          git -C /tmp/mproxy-panel fetch https://github.com/Zephyruso/zashboard.git \
+            "refs/tags/${ZASHBOARD_TAG}:refs/tags/${ZASHBOARD_TAG}"
+          if ! git -C /tmp/mproxy-panel merge --no-ff --no-edit \
+               -m "chore: merge upstream zashboard ${ZASHBOARD_TAG}" "$ZASHBOARD_TAG"; then
+            echo "::error::zashboard ${ZASHBOARD_TAG} merge 冲突，需要人工解决 panel 分支"
+            git -C /tmp/mproxy-panel merge --abort || true
+            exit 1
+          fi
+
+          PANEL_COMMIT="$(git -C /tmp/mproxy-panel rev-parse HEAD)"
+          git -C /tmp/mproxy-panel push origin HEAD:panel
+          echo "commit=$PANEL_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "merged zashboard ${ZASHBOARD_TAG} -> ${PANEL_COMMIT}"
+
+      - name: 更新 panel.lock 并创建 PR
+        if: steps.panel.outputs.commit != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIHOMO_TAG: ${{ steps.latest.outputs.mihomo }}
+          ZASHBOARD_TAG: ${{ steps.latest.outputs.zashboard }}
+          PANEL_COMMIT: ${{ steps.panel.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          BRANCH="chore/sync-panel-${ZASHBOARD_TAG}"
+          git checkout -B "$BRANCH"
+          printf '%s\n' "$PANEL_COMMIT" > panel.lock
+          git add panel.lock upstream/mihomo
+          if git diff --cached --quiet; then
+            echo "已是最新，无需 PR"
+            exit 0
+          fi
+          git commit -m "chore(upstream): mihomo ${MIHOMO_TAG}, zashboard ${ZASHBOARD_TAG}"
+          git push -u origin "$BRANCH"
+
+          {
+            echo "## 上游自动同步"
+            echo ""
+            echo "| 组件 | 上游 tag | 同步方式 |"
+            echo "| --- | --- | --- |"
+            echo "| mihomo | \`${MIHOMO_TAG}\` | submodule 指向 release tag |"
+            echo "| zashboard | \`${ZASHBOARD_TAG}\` | panel 分支 git merge |"
+            echo ""
+            echo "- panel commit: \`${PANEL_COMMIT}\`"
+            echo "- panel.lock 已更新到该 commit"
+            echo ""
+            echo "### 合并前检查"
+            echo "- [ ] CI 面板构建 / vue-tsc / 后端与内核构建通过"
+            echo "- [ ] zashboard upstream merge 无冲突（本工作流已成功完成 merge）"
+            echo "- [ ] 手测「设置 → 模块 / 订阅 / 分流」与 edge-to-edge"
+          } > /tmp/pr-body.md
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(upstream): zashboard ${ZASHBOARD_TAG} / mihomo ${MIHOMO_TAG}" \
+            --body-file /tmp/pr-body.md

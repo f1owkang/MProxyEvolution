@@ -1,0 +1,27 @@
+# 构建产物
+/build/
+/dist/
+*.zip
+*.tar.gz
+
+# 本地打包与发布辅助产物（根目录手工测试包、临时压缩包、归档目录）
+/artifacts/
+/.tmp-*
+
+# Node
+node_modules/
+pnpm-store/
+.vite/
+
+# Go
+backend/internal/webui/dist/*
+!backend/internal/webui/dist/index.html
+
+# 本地调试数据
+.devdata/
+.dev-data/
+
+# 日志与临时文件
+*.log
+npm-install.log
+panels/

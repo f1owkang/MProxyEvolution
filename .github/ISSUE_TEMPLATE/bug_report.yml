@@ -1,0 +1,82 @@
+name: Bug report / 问题反馈
+description: 模块安装、面板、TUN/代理或订阅异常时，用脱敏诊断快速定位
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先升级到最新 [Release](https://github.com/f1owkang/MProxyEvolution/releases)，并按 [安装](https://github.com/f1owkang/MProxyEvolution/blob/main/README.md#安装)、[常见问题](https://github.com/f1owkang/MProxyEvolution/blob/main/README.md#常见问题) 排查。
+        诊断信息来自面板「设置 → 诊断」页，或设备上的 `/data/adb/mproxy/logs/`（后端日志）与 `/data/adb/modules/MProxyEvolution/`（模块目录）。
+        请直接粘贴**文本**，不要只发截图；粘贴前请删除订阅链接、节点密码等敏感信息。
+  - type: input
+    id: version
+    attributes:
+      label: 模块版本 / Module version
+      description: 见 root 管理器模块页，或面板「设置 → 关于」；格式如 v0.1.0 (1)
+      placeholder: v0.1.0 (1)
+    validations:
+      required: true
+  - type: dropdown
+    id: root
+    attributes:
+      label: Root 管理器 / Root manager
+      options:
+        - KernelSU
+        - KernelSU Next
+        - Magisk
+        - APatch
+        - 其他 / Other
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 机型与系统 / Device & Android
+      description: 机型代号 + Android 版本 + ROM
+      placeholder: Xiaomi 23127PN0CC / Android 14 / HyperOS 1.0
+    validations:
+      required: true
+  - type: input
+    id: abi
+    attributes:
+      label: ABI / 架构
+      description: 设备 CPU 架构（arm64-v8a / armeabi-v7a / x86 / x86_64）
+      placeholder: arm64-v8a
+    validations:
+      required: false
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题与复现 / Problem & steps
+      description: 现象、出现频率、复现步骤、期望结果
+      placeholder: |
+        现象：...
+        复现：1. ... 2. ...
+        期望：...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 日志与诊断 / Logs & diagnostics
+      description: |
+        粘贴面板「设置 → 诊断」页导出的内容，以及相关日志（`/data/adb/mproxy/logs/`，可用 `logcat -d` 补充）。
+        TUN / 内核问题请附 `mihomo -t` 校验输出与 `ip rule`、`ip route` 结果。
+        已脱敏（无订阅链接、节点密码、账号），请直接粘贴文本。
+      placeholder: |
+        MProxyEvolution 诊断（已脱敏）...
+        /data/adb/mproxy/logs/mproxy.log 片段...
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 提交前确认 / Checklist
+      options:
+        - label: 已使用最新 Release，重装/重启过，并搜索过现有 issue
+          required: true
+        - label: 诊断与日志已完整粘贴，且确认不含订阅链接、节点密码等敏感信息
+          required: true
+        - label: 已阅读 README 的「安装」与「常见问题」
+          required: true

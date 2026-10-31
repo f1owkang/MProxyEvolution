@@ -1,0 +1,84 @@
+MProxyEvolution THIRD_PARTY_NOTICES
+
+MProxyEvolution（本仓库）是一个 KernelSU / Magisk 网络代理模块：模块脚本、Go 后端、面板 fork
+（zashboard `panel` 分支）、构建与发版脚本由 MProxyEvolution 项目维护；运行时依赖以下第三方开源组件。
+
+本文件汇总第三方组件的版权与许可证信息。完整许可证文本见各组件仓库或
+`upstream/` 子模块中的 LICENSE 文件。
+
+--------------------------------------------------------------------------------
+1. zashboard
+--------------------------------------------------------------------------------
+
+  项目：zashboard
+  仓库：https://github.com/Zephyruso/zashboard
+  用途：Web 管理面板（本仓库以 fork 维护：上游完整历史与 MProxyEvolution 增量改动都在 `panel`
+        分支上，`panel.lock` 固定构建使用的 commit）
+  版本：`panel` 分支 + `panel.lock`（由 upstream release tag merge 而来，当前上游 v3.30.0）
+  许可证：MIT License
+
+  Copyright 2024 Zephyruso
+
+  完整 MIT 许可证文本见 zashboard 仓库的 LICENSE
+  （https://github.com/Zephyruso/zashboard/blob/main/LICENSE）。分发本项目的面板构建产物时，
+  必须保留上述版权声明与许可声明。
+
+--------------------------------------------------------------------------------
+2. mihomo
+--------------------------------------------------------------------------------
+
+  项目：mihomo（Clash.Meta 后继）
+  仓库：https://github.com/MetaCubeX/mihomo
+  用途：代理内核（本项目从源码交叉编译为 Android 二进制，随模块 zip 分发）
+  版本：upstream/mihomo submodule（固定 release tag，当前 v1.19.33）
+  许可证：GNU General Public License v3.0（GPL-3.0）
+
+  完整 GPL-3.0 许可证文本见 upstream/mihomo/LICENSE。
+
+  GPL-3.0 合规说明：
+    - 本项目分发的模块 zip 中包含由 mihomo 源码构建的二进制；
+    - 对应源码可通过以下任一方式获取：
+        a) 本仓库 upstream/mihomo 子模块（固定到构建所用的 release tag）；
+        b) https://github.com/MetaCubeX/mihomo（对应 release tag 的源码归档）；
+    - 构建方式见 scripts/build.sh 与 scripts/build.ps1（CGO_ENABLED=0、GOOS=linux、
+      -tags with_gvisor、-trimpath、-ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=<tag>"）。
+      android/arm 需要 cgo 外部链接，为保证 CGO_ENABLED=0 可复现构建，统一构建静态 linux 二进制
+      （在 Android 上可直接运行，mihomo 使用自带 DNS）；
+    - 修改 mihomo 源码后再分发时，须同样以 GPL-3.0 提供修改后的源码。
+
+--------------------------------------------------------------------------------
+3. Go 后端与依赖
+--------------------------------------------------------------------------------
+
+  MProxyEvolution Go 后端（backend/）及其 Go 模块依赖各自适用其原始许可证
+  （通常为 MIT / BSD-3-Clause / Apache-2.0 等）。依赖清单与版本见 backend/go.mod、
+  backend/go.sum；各依赖的 LICENSE 文件位于 Go module 缓存或对应上游仓库。
+
+--------------------------------------------------------------------------------
+4. 面板间接依赖
+--------------------------------------------------------------------------------
+
+  zashboard 构建产物包含其 npm 依赖（Vue、ECharts、axios 等），各依赖适用其原始
+  许可证（MIT / Apache-2.0 / BSD 等）。依赖清单见 `panel` 分支的 package.json 与
+  pnpm-lock.yaml（构建时由 scripts/dev-panel.sh 检出到 build/panel）。
+
+--------------------------------------------------------------------------------
+5. Android / KernelSU / Magisk
+--------------------------------------------------------------------------------
+
+  本模块通过 KernelSU / Magisk 的模块机制安装与运行。KernelSU（GPL-3.0）与
+  Magisk（GPL-3.0）本身不随本仓库分发，仅作为运行环境。Android 系统组件
+  （toybox、bionic 等）适用 AOSP 相应许可证。
+
+--------------------------------------------------------------------------------
+6. 免责声明
+--------------------------------------------------------------------------------
+
+  本软件按“原样”提供，不附带任何明示或暗示的担保。使用本模块进行网络代理可能
+  受当地法律法规及网络服务条款约束，请自行确认合规性；因使用本软件产生的一切
+  后果由使用者自行承担。
+
+--------------------------------------------------------------------------------
+
+若您是版权持有人并认为本仓库的归属或署名方式不妥，请提交 issue 或联系维护者，
+我们会在核实后尽快更正。

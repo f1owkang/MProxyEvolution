@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>MihomoProxy Evolution</title>
+<!--
+  MihomoProxy Evolution bootstrap（零依赖、无外部资源、非 ES module）
+  职责：调用 mproxy boot 启动本地后端，然后跳转到 http://127.0.0.1:9091/?token=...#/settings?section=moduleSettings
+  运行环境：KernelSU / KernelSU Next WebView（提供 window.ksu.exec 三参数回调）
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+    background: #0b0f14;
+    color: #e6edf3;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 18px calc(56px + env(safe-area-inset-bottom));
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 420px;
+    background: #111820;
+    border: 1px solid #1f2a35;
+    border-radius: 18px;
+    padding: 28px 22px 22px;
+    text-align: center;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .45);
+  }
+  .logo {
+    width: 64px; height: 64px;
+    margin: 0 auto 14px;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  }
+  .logo img { width: 100%; height: 100%; display: block; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; letter-spacing: .02em; }
+  .sub { margin: 0 0 22px; font-size: 12.5px; color: #8b98a5; }
+  .status {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; font-size: 15px; min-height: 24px; line-height: 1.4;
+  }
+  .status.error #status-text { color: #ff7b72; }
+  .status.ok #status-text { color: #3fb950; }
+  .spinner {
+    width: 16px; height: 16px; flex: none;
+    border: 2px solid rgba(139, 152, 165, .3);
+    border-top-color: #2f81f7;
+    border-radius: 50%;
+    animation: mproxy-spin .8s linear infinite;
+  }
+  @keyframes mproxy-spin { to { transform: rotate(360deg); } }
+  .hint { margin: 14px 0 0; font-size: 12.5px; line-height: 1.6; color: #8b98a5; min-height: 20px; }
+  .detail {
+    margin: 14px 0 0; padding: 10px 12px;
+    text-align: left; font-size: 11.5px; line-height: 1.5;
+    color: #ffa198; background: #1a1113;
+    border: 1px solid #3d1d1d; border-radius: 10px;
+    max-height: 180px; overflow: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .retry {
+    margin-top: 18px; width: 100%; padding: 11px 16px;
+    font-size: 14px; font-weight: 600; color: #fff;
+    background: #2f81f7; border: 0; border-radius: 10px;
+    cursor: pointer; touch-action: manipulation;
+  }
+  .retry:active { background: #1f6feb; }
+  .footer {
+    position: fixed; left: 0; right: 0;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    text-align: center; font-size: 11px; color: #4b5563;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="logo" aria-hidden="true"><img src="icon.png" alt="" /></div>
+    <h1>MihomoProxy Evolution</h1>
+    <p class="sub">mihomo 内核 · zashboard 面板</p>
+
+    <div class="status loading" id="status">
+      <span class="spinner" id="spinner" aria-hidden="true"></span>
+      <span id="status-text">正在启动后端…</span>
+    </div>
+
+    <p class="hint" id="hint">首次启动约需 5–20 秒，请稍候</p>
+    <pre class="detail" id="detail" hidden></pre>
+
+    <button class="retry" id="retry" type="button" hidden>重试</button>
+  </main>
+
+  <div class="footer">MihomoProxy Evolution · 本地服务 127.0.0.1:9091</div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    var BOOT_CMD = '/data/adb/mproxy/bin/mproxy boot';
+    var BASE = 'http://127.0.0.1:9091';
+    var BOOT_TIMEOUT_MS = 60000;
+    var HEALTH_TIMEOUT_MS = 3000;
+    var MAX_DETAIL = 2000;
+
+    var elStatus = document.getElementById('status');
+    var elText = document.getElementById('status-text');
+    var elHint = document.getElementById('hint');
+    var elDetail = document.getElementById('detail');
+    var elRetry = document.getElementById('retry');
+    var elSpinner = document.getElementById('spinner');
+
+    var timer = null;
+    var attempt = 0;
+    var redirected = false;
+    var failed = false;
+
+    function clearTimer() {
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+    }
+
+    function setState(state) {
+      elStatus.className = 'status ' + state;
+    }
+
+    function showDetail(text) {
+      if (!text) { elDetail.hidden = true; return; }
+      var t = String(text).replace(/\s+$/, '');
+      if (t.length > MAX_DETAIL) { t = '…' + t.slice(-MAX_DETAIL); }
+      elDetail.textContent = t;
+      elDetail.hidden = false;
+    }
+
+    function fail(title, detail) {
+      if (redirected || failed) { return; }
+      failed = true;
+      clearTimer();
+      setState('error');
+      elSpinner.hidden = true;
+      elText.textContent = title;
+      elHint.textContent = '请确认已通过 KernelSU / Magisk 管理器打开 MihomoProxy Evolution，并查看日志排错。';
+      showDetail(detail);
+      elRetry.hidden = false;
+      if (window.ksu && typeof window.ksu.toast === 'function') {
+        try { window.ksu.toast('MihomoProxy Evolution 启动失败'); } catch (e) {}
+      }
+    }
+
+    function redirectTo(url) {
+      if (redirected) { return; }
+      redirected = true;
+      clearTimer();
+      setState('ok');
+      elSpinner.hidden = true;
+      elText.textContent = '启动成功，正在进入面板…';
+      elHint.textContent = '';
+      elDetail.hidden = true;
+      elRetry.hidden = true;
+      window.location.replace(url);
+    }
+
+    // 从 boot 的 stdout 中提取最后一条 127.0.0.1:9091 面板地址
+    function extractUrl(text) {
+      if (!text) { return ''; }
+      var lines = String(text).split(/\r?\n/);
+      var re = /https?:\/\/127\.0\.0\.1:9091\/[^\s"'<>]*/;
+      for (var i = lines.length - 1; i >= 0; i--) {
+        var m = lines[i].match(re);
+        if (m && m[0]) { return m[0]; }
+      }
+      return '';
+    }
+
+    function normalizeUrl(url) {
+      if (!url) { return ''; }
+      if (url.indexOf('#') === -1) { url += '#/settings?section=moduleSettings'; }
+      return url;
+    }
+
+    function readTokenFromLocation() {
+      try {
+        var search = window.location.search || '';
+        var m = search.match(/[?&]token=([^&#]+)/);
+        if (m) { return decodeURIComponent(m[1]); }
+        var hash = window.location.hash || '';
+        var m2 = hash.match(/[#&]token=([^&#]+)/);
+        if (m2) { return decodeURIComponent(m2[1]); }
+      } catch (e) {}
+      return '';
+    }
+
+    function startKsu(ksu) {
+      setState('loading');
+      elSpinner.hidden = false;
+      elText.textContent = attempt > 1 ? '正在重新启动后端…' : '正在启动后端…';
+      elHint.textContent = '首次启动约需 5–20 秒，请勿关闭页面';
+
+      timer = setTimeout(function () {
+        if (finished) { return; }
+        finish();
+        fail('启动超时（' + Math.round(BOOT_TIMEOUT_MS / 1000) + ' 秒）',
+          '可点击「重试」，或查看日志：\n/data/adb/mproxy/logs/service.log\n/data/adb/mproxy/logs/core.log');
+      }, BOOT_TIMEOUT_MS);
+
+      var callbackName = '__mproxy_boot_cb_' + Date.now() + '_' + attempt;
+      var finished = false;
+
+      function finish() {
+        finished = true;
+        clearTimer();
+        try { delete window[callbackName]; } catch (e) {}
+      }
+
+      window[callbackName] = function (errno, stdout, stderr) {
+        if (finished) { return; }
+        finish();
+        var url = extractUrl(stdout);
+        if (url) {
+          redirectTo(normalizeUrl(url));
+          return;
+        }
+        var detail = '';
+        if (stderr) { detail += String(stderr); }
+        if (stdout) { detail += (detail ? '\n' : '') + String(stdout); }
+        fail('后端启动失败（退出码 ' + errno + '）', detail);
+      };
+
+      try {
+        // KernelSU 原生接口签名：exec(command, optionsJSON, callbackName)
+        // 第三个参数必须是全局函数名字符串，不是函数对象；官方 kernelsu npm 库
+        // 也是先生成唯一名字挂到 window，再把名字传给 ksu.exec。
+        ksu.exec(BOOT_CMD, '{}', callbackName);
+      } catch (e) {
+        finish();
+        fail('无法调用 KernelSU 命令接口', String(e && e.message ? e.message : e));
+      }
+    }
+
+    function startFetch() {
+      // 没有 ksu.exec（例如桌面浏览器调试）：探测本地后端是否已在运行
+      setState('loading');
+      elSpinner.hidden = false;
+      elText.textContent = '未检测到 KernelSU，正在探测本地后端…';
+      elHint.textContent = '若后端尚未运行，请在 KernelSU / Magisk 管理器中打开本模块';
+
+      var finished = false;
+      timer = setTimeout(function () {
+        if (!finished) { fail('探测本地后端超时', '无法连接 ' + BASE + '/healthz'); }
+      }, HEALTH_TIMEOUT_MS + 2000);
+
+      function done(ok) {
+        if (finished) { return; }
+        finished = true;
+        clearTimer();
+        if (redirected || failed) {
+          // 超时提示已展示；若后端此时可用仍允许跳转
+          if (!ok) { return; }
+        }
+        if (!ok) {
+          fail('本地后端未运行',
+            '请先在 KernelSU / Magisk 管理器中打开 MihomoProxy Evolution，或在 root 终端执行：\n' + BOOT_CMD);
+          return;
+        }
+        var token = readTokenFromLocation();
+        var url = BASE + '/';
+        if (token) { url += '?token=' + encodeURIComponent(token); }
+        redirectTo(url + '#/settings?section=moduleSettings');
+      }
+
+      if (typeof window.fetch !== 'function') { done(false); return; }
+
+      var controller = null;
+      try { controller = new AbortController(); } catch (e) { controller = null; }
+
+      var opts = { method: 'GET', cache: 'no-store' };
+      if (controller) { opts.signal = controller.signal; }
+
+      window.fetch(BASE + '/healthz', opts).then(function (resp) {
+        done(!!(resp && resp.ok));
+      }).catch(function () {
+        done(false);
+      });
+
+      setTimeout(function () {
+        if (controller) { try { controller.abort(); } catch (e) {} }
+      }, HEALTH_TIMEOUT_MS);
+    }
+
+    function start() {
+      attempt += 1;
+      clearTimer();
+      failed = false;
+      redirected = false;
+      elRetry.hidden = true;
+      elDetail.hidden = true;
+      elDetail.textContent = '';
+
+      var ksu = window.ksu;
+      if (ksu && typeof ksu.exec === 'function') {
+        startKsu(ksu);
+      } else {
+        startFetch();
+      }
+    }
+
+    elRetry.addEventListener('click', start);
+    start();
+  })();
+  </script>
+</body>
+</html>
+
+
