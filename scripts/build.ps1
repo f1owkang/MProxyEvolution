@@ -8,8 +8,12 @@
       build/backend/<abi>/mproxy  Go 后端
       build/core/<abi>/mihomo     mihomo 内核
       build/module-root           zip 的根目录（module/** + bin/**）
-      dist/MProxyEvolution-<versionCode>-<version>.zip   可刷入的模块包
+      dist/MProxyEvolution-<versionCode>-<version>.zip   可刷入的模块包（universal，四架构）
       dist/MProxyEvolution-<versionCode>-<version>.zip.sha256
+      dist/MProxyEvolution-<versionCode>-<version>-arm64-v8a.zip      -Split 时的 4 个单架构包：
+      dist/MProxyEvolution-<versionCode>-<version>-armeabi-v7a.zip    arm64-v8a / armeabi-v7a / x86 / x86_64
+      dist/MProxyEvolution-<versionCode>-<version>-x86.zip            （同名 .sha256）
+      dist/MProxyEvolution-<versionCode>-<version>-x86_64.zip
 
     本脚本只负责“构建/组装/打包”；面板由 scripts/dev-panel.ps1 按 panel.lock 检出 fork
     commit 到 build/panel。
@@ -29,6 +33,9 @@
 .PARAMETER SkipZip
     只组装 build/module-root，不生成 zip / sha256。
 
+.PARAMETER Split
+    额外产出 4 个单架构包（arm64-v8a / armeabi-v7a / x86 / x86_64）；universal 包始终产出。
+
 .PARAMETER Clean
     构建前清理 build/ 与 dist/。
 
@@ -36,6 +43,7 @@
     pwsh -File scripts/build.ps1
     pwsh -File scripts/build.ps1 -Version 0.2.0 -Clean
     pwsh -File scripts/build.ps1 -SkipPanel -SkipCore
+    pwsh -File scripts/build.ps1 -Split
 
 .NOTES
     需要：git、Go 1.26+、Node.js 20+、pnpm 10+（或 npm）。
@@ -48,6 +56,7 @@ param(
     [switch]$SkipBackend,
     [switch]$SkipCore,
     [switch]$SkipZip,
+    [switch]$Split,
     [switch]$Clean
 )
 
@@ -192,6 +201,78 @@ function Ensure-Directory {
     if (-not (Test-Path -LiteralPath $Path)) {
         New-Item -ItemType Directory -Path $Path -Force | Out-Null
     }
+}
+
+# 创建模块 zip。$ExcludePatterns 为相对路径通配符（如 bin/386/*），单架构包用它排除其它 ABI。
+function New-ModuleZip {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [string[]]$ExcludePatterns = @()
+    )
+    if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
+    $entryCount = 0
+    $zipStream = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $moduleRootFull = (Resolve-Path -LiteralPath $ModuleRoot).Path
+        Get-ChildItem -LiteralPath $moduleRootFull -Recurse -File | ForEach-Object {
+            $relative = $_.FullName.Substring($moduleRootFull.Length + 1).Replace('\', '/')
+            $skip = $false
+            foreach ($pattern in $ExcludePatterns) {
+                if ($relative -like $pattern) { $skip = $true; break }
+            }
+            if (-not $skip) {
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $zipStream, $_.FullName, $relative,
+                    [System.IO.Compression.CompressionLevel]::Optimal
+                ) | Out-Null
+                $entryCount++
+            }
+        }
+    }
+    finally {
+        $zipStream.Dispose()
+    }
+    Write-Info "zip 包含 $entryCount 个文件"
+    return $entryCount
+}
+
+function Write-Sha256File {
+    param([Parameter(Mandatory = $true)][string]$ZipPath)
+    $zipName = Split-Path -Leaf $ZipPath
+    $hash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $shaLine = "$hash  $zipName`n"
+    [System.IO.File]::WriteAllText("$ZipPath.sha256", $shaLine, (New-Object System.Text.UTF8Encoding($false)))
+    return $hash
+}
+
+# 单架构包结构校验：必须含目标 ABI 的后端与内核，且不能残留其它 ABI 目录。
+function Assert-SplitZipLayout {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$AbiDir
+    )
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $names = @($archive.Entries | ForEach-Object { $_.FullName })
+    }
+    finally {
+        $archive.Dispose()
+    }
+    foreach ($required in @("bin/$AbiDir/mproxy", "bin/core/$AbiDir/mihomo")) {
+        if ($names -notcontains $required) {
+            throw "架构包缺少 $required：$ZipPath"
+        }
+    }
+    foreach ($other in @('arm64', 'arm', '386', 'amd64')) {
+        if ($other -eq $AbiDir) { continue }
+        foreach ($forbidden in @("bin/$other/", "bin/core/$other/")) {
+            $bad = @($names | Where-Object { $_.StartsWith($forbidden) })
+            if ($bad.Count -gt 0) {
+                throw "架构包不应包含 $forbidden：$ZipPath"
+            }
+        }
+    }
+    Write-Info "架构包结构校验通过：$AbiDir"
 }
 
 # ---------------------------------------------------------------------------
@@ -484,47 +565,60 @@ if ($SkipZip) {
 }
 
 # ---------------------------------------------------------------------------
-# 5. 打包 zip + sha256
+# 5. 打包 zip + sha256（universal 始终产出；-Split 额外产出 4 个单架构包）
 # ---------------------------------------------------------------------------
 Write-Step '打包 dist/MProxyEvolution-<versionCode>-<version>.zip'
 Ensure-Directory $DistDir
 $zipName = "MProxyEvolution-$VersionCode-$VersionSafe.zip"
 $zipPath = Join-Path $DistDir $zipName
-if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$entryCount = 0
-$zipStream = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
-try {
-    $moduleRootFull = (Resolve-Path -LiteralPath $ModuleRoot).Path
-    Get-ChildItem -LiteralPath $moduleRootFull -Recurse -File | ForEach-Object {
-        $relative = $_.FullName.Substring($moduleRootFull.Length + 1).Replace('\', '/')
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-            $zipStream, $_.FullName, $relative,
-            [System.IO.Compression.CompressionLevel]::Optimal
-        ) | Out-Null
-        $entryCount++
+[void](New-ModuleZip -ZipPath $zipPath)
+$hash = Write-Sha256File -ZipPath $zipPath
+Write-Info "SHA256：$hash"
+
+$splitPaths = @()
+if ($Split) {
+    Write-Step '打包单架构包（-Split）'
+    # ABI 目录名 -> 发布资产后缀（arm64→arm64-v8a、arm→armeabi-v7a、386→x86、amd64→x86_64）
+    $splitPackages = @(
+        [pscustomobject]@{ Dir = 'arm64'; Tag = 'arm64-v8a' },
+        [pscustomobject]@{ Dir = 'arm';   Tag = 'armeabi-v7a' },
+        [pscustomobject]@{ Dir = '386';   Tag = 'x86' },
+        [pscustomobject]@{ Dir = 'amd64'; Tag = 'x86_64' }
+    )
+    foreach ($pkg in $splitPackages) {
+        $splitName = "MProxyEvolution-$VersionCode-$VersionSafe-$($pkg.Tag).zip"
+        $splitPath = Join-Path $DistDir $splitName
+        $excludes = @()
+        foreach ($other in @('arm64', 'arm', '386', 'amd64')) {
+            if ($other -eq $pkg.Dir) { continue }
+            $excludes += @("bin/$other/", "bin/$other/*", "bin/core/$other/", "bin/core/$other/*")
+        }
+        [void](New-ModuleZip -ZipPath $splitPath -ExcludePatterns $excludes)
+        Assert-SplitZipLayout -ZipPath $splitPath -AbiDir $pkg.Dir
+        $splitHash = Write-Sha256File -ZipPath $splitPath
+        Write-Info "SHA256：$splitHash"
+        $splitPaths += $splitPath
     }
 }
-finally {
-    $zipStream.Dispose()
-}
-Write-Info "zip 包含 $entryCount 个文件"
-
-$hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-$shaLine = "$hash  $zipName`n"
-$shaPath = "$zipPath.sha256"
-[System.IO.File]::WriteAllText($shaPath, $shaLine, (New-Object System.Text.UTF8Encoding($false)))
-Write-Info "SHA256：$hash"
 
 # ---------------------------------------------------------------------------
 # 6. 结果摘要
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "构建完成 ✔" -ForegroundColor Green
-Write-Host "  模块包：$zipPath"
-Write-Host "  校验和：$shaPath"
+Write-Host "  universal 包：$zipPath"
+Write-Host "  universal 校验和：$zipPath.sha256"
 $sizeMb = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 2)
-Write-Host "  大小：  $sizeMb MiB"
+Write-Host "  universal 大小：  $sizeMb MiB"
+if ($Split) {
+    foreach ($splitPath in $splitPaths) {
+        $splitSizeMb = [math]::Round((Get-Item -LiteralPath $splitPath).Length / 1MB, 2)
+        Write-Host "  单架构包：      $splitPath"
+        Write-Host "  单架构校验和：  $splitPath.sha256"
+        Write-Host "  单架构大小：    $splitSizeMb MiB"
+    }
+}

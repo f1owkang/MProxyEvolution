@@ -108,6 +108,55 @@ for f in module/*.sh scripts/*.sh; do
 done
 
 # ---------------------------------------------------------------------------
+# 6. per-ABI package split (universal + 4 single-architecture packages)
+# ---------------------------------------------------------------------------
+check 'build.sh supports --split' \
+  grep -qF -- '--split' scripts/build.sh
+check 'build.sh maps all 4 ABIs to release asset tags' \
+  bash -c 'grep -qF "arm64:arm64-v8a" scripts/build.sh \
+    && grep -qF "arm:armeabi-v7a" scripts/build.sh \
+    && grep -qF "386:x86" scripts/build.sh \
+    && grep -qF "amd64:x86_64" scripts/build.sh'
+check 'build.sh no longer supports --slim' \
+  bash -c '! grep -qF -- "--slim" scripts/build.sh'
+check 'build.sh emits per-ABI zip names' \
+  grep -qF 'split_name="MProxyEvolution-${VERSION_CODE}-${VERSION_SAFE}-${abi_tag}.zip"' scripts/build.sh
+check 'build.ps1 supports -Split' \
+  grep -qF '[switch]$Split' scripts/build.ps1
+check 'build.ps1 no longer supports -Slim' \
+  bash -c '! grep -qF -- "-Slim" scripts/build.ps1'
+check 'build.ps1 maps all 4 ABIs to release asset tags' \
+  bash -c 'grep -qF "arm64-v8a" scripts/build.ps1 \
+    && grep -qF "armeabi-v7a" scripts/build.ps1 \
+    && grep -qF "x86_64" scripts/build.ps1'
+check 'ci.yml builds split packages' \
+  grep -qF 'build.sh --split' .github/workflows/ci.yml
+check 'ci.yml verifies per-ABI package layout' \
+  grep -qF 'per-ABI zips' .github/workflows/ci.yml
+check 'release.yml builds split packages' \
+  grep -qF 'build.sh --split' .github/workflows/release.yml
+check 'release.yml exports all 4 per-ABI asset names' \
+  bash -c 'grep -qF "ASSET_ARM64=" .github/workflows/release.yml \
+    && grep -qF "ASSET_ARMV7=" .github/workflows/release.yml \
+    && grep -qF "ASSET_X86=" .github/workflows/release.yml \
+    && grep -qF "ASSET_X8664=" .github/workflows/release.yml'
+check 'release.yml uploads the per-ABI zips and checksums' \
+  bash -c 'grep -qF "dist/\${{ env.ASSET_ARM64 }}.sha256" .github/workflows/release.yml \
+    && grep -qF "dist/\${{ env.ASSET_X8664 }}.sha256" .github/workflows/release.yml'
+check 'README.md documents per-ABI packages' \
+  bash -c 'grep -qF -- "-arm64-v8a.zip" README.md \
+    && grep -qF -- "-x86_64.zip" README.md \
+    && grep -qF "ro.product.cpu.abi" README.md'
+check 'README_EN.md documents per-ABI packages' \
+  bash -c 'grep -qF -- "-arm64-v8a.zip" README_EN.md \
+    && grep -qF -- "-x86_64.zip" README_EN.md \
+    && grep -qF "ro.product.cpu.abi" README_EN.md'
+check 'customize.sh hints per-ABI mismatch' \
+  grep -qF '该包只包含其它架构' module/customize.sh
+check 'no slim variant references remain in packaging files' \
+  bash -c '! grep -riq slim scripts/build.sh scripts/build.ps1 .github/workflows/ci.yml .github/workflows/release.yml README.md README_EN.md module/customize.sh'
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 printf '\n%d checks passed, %d failed\n' "$passed" "$failed"

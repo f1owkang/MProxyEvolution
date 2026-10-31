@@ -2,12 +2,15 @@
 # MProxyEvolution 构建脚本（Ubuntu / CI / Git Bash）
 #
 # 流程：submodule（mihomo）→ 面板（dev-panel 检出 panel.lock + pnpm build）→ Go 后端 4 架构 →
-#       mihomo 内核 4 架构 → 组装 build/module-root → dist/MProxyEvolution-<versionCode>-<version>.zip + .sha256
+#       mihomo 内核 4 架构 → 组装 build/module-root →
+#       dist/MProxyEvolution-<versionCode>-<version>.zip + .sha256（universal，四架构）
+#       --split 时额外产出 4 个单架构包 + .sha256（arm64-v8a / armeabi-v7a / x86 / x86_64）
 #
 # 用法：
 #   bash scripts/build.sh
 #   bash scripts/build.sh --version 0.2.0 --clean
 #   bash scripts/build.sh --skip-panel --skip-core
+#   bash scripts/build.sh --split
 #
 # 需要：git、Go 1.26+、Node.js 20+、pnpm 10+（或 npm）、zip、sha256sum。
 # 面板由 scripts/dev-panel.sh 按 panel.lock 检出 fork commit 到 build/panel。
@@ -32,6 +35,7 @@ SKIP_BACKEND=0
 SKIP_CORE=0
 SKIP_ZIP=0
 CLEAN=0
+SPLIT=0
 
 usage() {
   cat <<'EOF'
@@ -44,6 +48,7 @@ usage() {
       --skip-backend    跳过 Go 后端编译（复用 build/backend）
       --skip-core       跳过 mihomo 内核编译（复用 build/core）
       --skip-zip        只组装 build/module-root，不打包
+      --split           额外产出 4 个单架构包（arm64-v8a / armeabi-v7a / x86 / x86_64）
       --clean           构建前清理 build/ 与 dist/
   -h, --help            显示本帮助
 EOF
@@ -110,6 +115,7 @@ while [ "$#" -gt 0 ]; do
     --skip-backend) SKIP_BACKEND=1; shift ;;
     --skip-core)    SKIP_CORE=1; shift ;;
     --skip-zip)     SKIP_ZIP=1; shift ;;
+    --split)        SPLIT=1; shift ;;
     --clean)        CLEAN=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     *) printf '未知参数：%s\n\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -340,44 +346,139 @@ if [ "$SKIP_ZIP" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 5. 打包 zip + sha256
+# 5. 打包 zip + sha256（universal 始终产出；--split 额外产出 4 个单架构包）
 # ---------------------------------------------------------------------------
-log_step '打包 dist/MProxyEvolution-<versionCode>-<version>.zip'
-mkdir -p "$DIST_DIR"
-zip_name="MProxyEvolution-${VERSION_CODE}-${VERSION_SAFE}.zip"
-zip_path="$DIST_DIR/$zip_name"
-rm -f "$zip_path"
+# 列出 zip 内条目。优先用 unzip；构建环境可能只有 python3（无 zip/unzip），
+# 因此用 zipfile 兜底，避免单架构包结构校验引入新的硬依赖。
+zip_list() {
+  local zip_file="$1"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -l "$zip_file" 2>/dev/null
+  else
+    python3 - "$zip_file" <<'PY'
+import sys
+import zipfile
 
-if command -v zip >/dev/null 2>&1; then
-  ( cd "$MODULE_ROOT" && zip -r -9 -q "$zip_path" . )
-else
-  log_warn '未找到 zip 命令，使用 python3 zipfile 打包'
-  require_cmd python3 '请安装 zip 或 python3。'
-  python3 - "$MODULE_ROOT" "$zip_path" <<'PY'
+with zipfile.ZipFile(sys.argv[1]) as zf:
+    for name in zf.namelist():
+        print(name)
+PY
+  fi
+}
+
+# 创建 zip。额外参数是排除模式（传给 zip -x；python 兜底用 fnmatch 过滤）。
+create_zip() {
+  local out="$1"
+  shift
+  rm -f "$out"
+  if command -v zip >/dev/null 2>&1; then
+    if [ "$#" -gt 0 ]; then
+      ( cd "$MODULE_ROOT" && zip -r -9 -q "$out" . -x "$@" )
+    else
+      ( cd "$MODULE_ROOT" && zip -r -9 -q "$out" . )
+    fi
+  else
+    log_warn '未找到 zip 命令，使用 python3 zipfile 打包'
+    require_cmd python3 '请安装 zip 或 python3。'
+    python3 - "$MODULE_ROOT" "$out" "$@" <<'PY'
+import fnmatch
 import os
 import sys
 import zipfile
 
 root, out = sys.argv[1], sys.argv[2]
+excludes = sys.argv[3:]
+
+
+def excluded(rel):
+    return any(fnmatch.fnmatchcase(rel, pat) for pat in excludes)
+
+
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
     for base, _dirs, files in os.walk(root):
         for name in sorted(files):
             full = os.path.join(base, name)
             rel = os.path.relpath(full, root).replace(os.sep, '/')
+            if excluded(rel):
+                continue
             zf.write(full, rel)
 PY
-fi
-[ -f "$zip_path" ] || die "打包失败：$zip_path 不存在"
+  fi
+  [ -f "$out" ] || die "打包失败：$out 不存在"
+}
 
-if command -v sha256sum >/dev/null 2>&1; then
-  ( cd "$DIST_DIR" && sha256sum "$zip_name" > "$zip_name.sha256" )
-elif command -v shasum >/dev/null 2>&1; then
-  ( cd "$DIST_DIR" && shasum -a 256 "$zip_name" > "$zip_name.sha256" )
-else
-  die '未找到 sha256sum / shasum，无法生成校验和。'
+sha256_file() {
+  local file="$1" dir name
+  dir="$(dirname "$file")"
+  name="$(basename "$file")"
+  if command -v sha256sum >/dev/null 2>&1; then
+    ( cd "$dir" && sha256sum "$name" > "$name.sha256" )
+  elif command -v shasum >/dev/null 2>&1; then
+    ( cd "$dir" && shasum -a 256 "$name" > "$name.sha256" )
+  else
+    die '未找到 sha256sum / shasum，无法生成校验和。'
+  fi
+}
+
+# 单架构包结构校验：必须含目标 ABI 的后端与内核，且不能残留其它 ABI 目录。
+validate_split_zip() {
+  local zip_file="$1" target_dir="$2" listing entry other bad
+  listing="$(zip_list "$zip_file")"
+  [ -n "$listing" ] || die "无法读取架构包内容：$zip_file"
+  for entry in "bin/$target_dir/mproxy" "bin/core/$target_dir/mihomo"; do
+    case "$listing" in
+      *"$entry"*) ;;
+      *) die "架构包缺少 $entry：$zip_file" ;;
+    esac
+  done
+  for other in arm64 arm 386 amd64; do
+    [ "$other" = "$target_dir" ] && continue
+    for bad in "bin/$other/" "bin/core/$other/"; do
+      case "$listing" in
+        *"$bad"*) die "架构包不应包含 $bad：$zip_file" ;;
+      esac
+    done
+  done
+  log_info "架构包结构校验通过：$target_dir"
+}
+
+log_step '打包 dist/MProxyEvolution-<versionCode>-<version>.zip'
+mkdir -p "$DIST_DIR"
+zip_name="MProxyEvolution-${VERSION_CODE}-${VERSION_SAFE}.zip"
+zip_path="$DIST_DIR/$zip_name"
+create_zip "$zip_path"
+sha256_file "$zip_path"
+
+split_paths=()
+if [ "$SPLIT" -eq 1 ]; then
+  log_step '打包单架构包（--split）'
+  # ABI 目录名:发布资产后缀（arm64→arm64-v8a、arm→armeabi-v7a、386→x86、amd64→x86_64）
+  for pair in arm64:arm64-v8a arm:armeabi-v7a 386:x86 amd64:x86_64; do
+    abi_dir="${pair%%:*}"
+    abi_tag="${pair#*:}"
+    split_name="MProxyEvolution-${VERSION_CODE}-${VERSION_SAFE}-${abi_tag}.zip"
+    split_path="$DIST_DIR/$split_name"
+    excludes=()
+    for other in arm64 arm 386 amd64; do
+      [ "$other" = "$abi_dir" ] && continue
+      excludes+=("bin/$other/" "bin/$other/*" "bin/core/$other/" "bin/core/$other/*")
+    done
+    create_zip "$split_path" "${excludes[@]}"
+    validate_split_zip "$split_path" "$abi_dir"
+    sha256_file "$split_path"
+    split_paths+=("$split_path")
+    log_info "已生成 $split_name（$(du -h "$split_path" | cut -f1)）"
+  done
 fi
 
 printf '\n构建完成 ✔\n'
-printf '  模块包：%s\n' "$zip_path"
-printf '  校验和：%s\n' "$zip_path.sha256"
-printf '  大小：  %s\n' "$(du -h "$zip_path" | cut -f1)"
+printf '  universal 包：%s\n' "$zip_path"
+printf '  universal 校验和：%s\n' "$zip_path.sha256"
+printf '  universal 大小：  %s\n' "$(du -h "$zip_path" | cut -f1)"
+if [ "$SPLIT" -eq 1 ]; then
+  for split_path in "${split_paths[@]}"; do
+    printf '  单架构包：      %s\n' "$split_path"
+    printf '  单架构校验和：  %s\n' "$split_path.sha256"
+    printf '  单架构大小：    %s\n' "$(du -h "$split_path" | cut -f1)"
+  done
+fi

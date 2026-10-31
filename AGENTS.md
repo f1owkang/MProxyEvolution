@@ -47,18 +47,23 @@ MProxyEvolution 是 KernelSU / Magisk 网络代理模块：mihomo 负责代理�
 
 - Go 1.26+（以 `backend/go.mod` 为准）、Node.js 22、pnpm 11.20.0、Git（submodule）；首次拉源码
   `git submodule update --init --recursive`。
-- `bash scripts/build.sh [--version 0.2.0] [--skip-panel] [--skip-backend] [--skip-core] [--skip-zip] [--clean]`；
-  Windows 用 `pwsh -File scripts/build.ps1 -Version 0.2.0 -SkipPanel ...`。两条路径参数、行为、产物必须一致，
+- `bash scripts/build.sh [--version 0.2.0] [--split] [--skip-panel] [--skip-backend] [--skip-core] [--skip-zip] [--clean]`；
+  Windows 用 `pwsh -File scripts/build.ps1 -Version 0.2.0 -Split ...`。两条路径参数、行为、产物必须一致，
   改一个必须同步另一个。
-- 产物：`dist/MProxyEvolution-<versionCode>-<version>.zip` + 同名 `.sha256`；`versionCode` 取自
-  `module/module.prop`。`module.yaml` 的 `release.assetPattern`、`update.json` 的 `zipUrl` 与 Release
-  资产名必须保持同一命名。
+- 产物：`dist/MProxyEvolution-<versionCode>-<version>.zip` + 同名 `.sha256`（universal，四架构，始终产出，
+  约 130 MiB，是 `update.json` 的自动更新目标）；`--split`/`-Split` 额外产出 4 个单架构包 + `.sha256`：
+  `-arm64-v8a`（bin/arm64）、`-armeabi-v7a`（bin/arm）、`-x86`（bin/386）、`-x86_64`（bin/amd64），
+  每个只含对应 ABI 的后端与内核（约 32-36 MiB，均低于 KernelSU Modules 100MB 上限）。`versionCode` 取自
+  `module/module.prop`；`module.yaml` 的 `release.assetPattern` 保持 `MProxyEvolution-*.zip`，
+  `update.json` 的 `zipUrl` 仍指向 universal。
 - 关键行为（改动构建脚本必须保持）：
   - 构建把版本写入 zip 内 `module-root/module.prop` 的 `version`（源文件保持 `0.1.0`）；写 `module.prop`
     必须 UTF-8 无 BOM（BOM 会让管理器解析首行失败）。
   - 仓库根 `THIRD_PARTY_NOTICES.txt` 必须复制进 zip 根目录，缺失直接失败（GPL-3.0 合规）。
   - `--skip-panel` / `-SkipPanel` 也必须把已有 `build/panel` 产物复制到后端嵌入目录，否则面板只剩占位
     `index.html`；`--skip-backend` / `--skip-core` 缺产物时只告警，CI 永远完整构建。
+  - 单架构包必须只保留目标 ABI 的 `bin/<dir>/mproxy` 与 `bin/core/<dir>/mihomo`，排除其余三个 ABI 目录；
+    构建脚本与 CI/Release 都要做结构校验（`zip -x` 与 python/.NET 兜底行为一致）；universal 必须仍含全部 8 个 ABI 二进制。
   - 版本号做文件名安全化（非 `[A-Za-z0-9._+-]` 替换为 `-`）；ldflags 注入
     `mproxy/internal/version.Version`（并为 `internal/buildinfo.Version`、`main.version` 兜底）；
     mihomo 版本取 `git -C upstream/mihomo describe --tags --always`，`arm` 固定 `GOARM=7`。
@@ -188,6 +193,9 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   - 内核异常退出且 `auto-start=true` 时看门狗按指数退避自动重启（最多 5 次）；`Stop`/`Update` 必须置
     “主动停止”标记，避免与用户操作冲突。重启次数与上次退出通过 `/api/status` 的 `restarts`/`lastExit`
     暴露，退出详情写 `state/last_exit`，启动成功后清除。
+  - TUN 残留清理必须“安全优先”：仅 Android、TUN 开启、上次异常退出、内核/外部实例未运行、controller
+    不可达、设备存在且设备名恰为 mihomo 默认 `Meta` 时才允许 `ip link del`；自定义设备名只记录并跳过，
+    任何清理失败都只告警，不得阻断启动。
 - `boot`：先探测 `/healthz`，未启动则 detached 拉起 `serve`，20s 内轮询，最后输出带 token 的面板地址；
   `status` 未运行返回非 0，`stop` 先内核后后端，`toggle` 切换。
 - TUN 启动前保持 `tun.auto-detect-interface` 不变（默认 true，由 mihomo 自行探测出口网卡）；仅当用户显式
@@ -234,22 +242,27 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   `gofmt -l backend`、`go vet`、`go test -race ./... -count=1` 与 `bash tests/scripts_test.sh`（安装器/打包
   回归断言）；`metadata` 校验 JSON/YAML 与 `module.prop`/`module.yaml`/`module.json`/`update.json`/
   `.release-baseline` 一致性；`lint` 跑 shellcheck、yamllint、actionlint；`panel` 按 `panel.lock` 检出后跑
-  `pnpm run lint` 与 `pnpm run type-check`；`build`（needs test/metadata/lint/panel）完整构建
-  （版本 `0.1.0-ci.<sha7>`）并上传 artifact，不发布。
-- `release.yml`：push `v*` tag → tag 与 `module.prop` 版本一致性 → 发布前测试 → `build.sh --version <tag 去掉 v>`
-  → zip 预检 → 生成 `changelog.txt` → draft Release → 发布（检查 release immutability，仅告警）→ 回写
-  `update.json` 与 `.release-baseline` 到 `main`。
+  `pnpm run lint` 与 `pnpm run type-check`；`build`（needs test/metadata/lint/panel）用 `--split` 完整构建
+  universal + 4 个单架构包（版本 `0.1.0-ci.<sha7>`）并上传 artifact，不发布。
+- `release.yml`：push `v*` tag → tag 与 `module.prop` 版本一致性 → 发布前测试 → `build.sh --split --version
+  <tag 去掉 v>` → universal + 4 个单架构包预检（每个 <100MB、只含本 ABI）→ 生成 `changelog.txt` → draft
+  Release（上传 5 个 zip 与对应 sha256）→ 发布（检查 release immutability，仅告警）→ 回写 `update.json`
+  与 `.release-baseline` 到 `main`（`update.json` 仍指向 universal）。
 - `sync-upstream.yml`：每天 03:17 UTC 读取两个上游 release tag；mihomo 更新 submodule；zashboard merge 到
   `panel` 分支并创建只更新 `panel.lock` 与 mihomo submodule 的 PR（workflow token 创建的 PR 不自动触发 CI）。
 - 版本策略：`module.prop` 的 `version` 是三位 `X.Y.Z` 且不带 `v`；发布 tag 是 `vX.Y.Z`，去掉 `v` 后必须一致；
   `versionCode` 递增且不复用。发版前手动改这两项，`update.json`/`.release-baseline` 由 CI 回写。
-- 资产名固定 `MProxyEvolution-<versionCode>-<version>.zip`、同名 `.sha256`、`changelog.txt`；
-  `module.yaml` 的 `release.assetPattern` 为 `MProxyEvolution-*.zip`。
+- 资产名固定：`MProxyEvolution-<versionCode>-<version>.zip`（universal）+ 同名 `.sha256`；
+  `MProxyEvolution-<versionCode>-<version>-<abi>.zip` + 同名 `.sha256`（abi = arm64-v8a / armeabi-v7a /
+  x86 / x86_64）+ `changelog.txt`。`module.yaml` 的 `release.assetPattern` 为 `MProxyEvolution-*.zip`
+  （会匹配多个包）。`update.json` 的 `zipUrl` 仍指向 universal，保证所有设备自动更新可用。
 - `changelog.txt` 基线取 `.release-baseline` 的 commit；缺失/不是 tag 祖先/区间为空时回退上一个正式 `v*` tag，
   再退全量 `git log`；不要用 `git describe`（tag 可能不在 main 祖先链、测试 tag 会干扰）。
 - 发布前确认仓库开启 **Enable release immutability**（KernelSU Modules 只接受 immutable release）。
-- 未接入 KernelSU Modules 的 `module-release` action：命名已一致，但四架构包超过 100MB 上限（zip-too-large），
-  当前用发布流水线内的 zip 结构预检替代；瘦身后可直接替换。
+- 未接入 KernelSU Modules 的 `module-release` action：universal 仍超过 100MB 上限（zip-too-large），
+  4 个单架构包（约 32-36 MiB）均满足上限；收录时 listing 使用 **arm64-v8a** 单架构包（覆盖绝大多数手机），
+  `update.json` 继续指向 universal。当前用发布流水线内的 5 个 zip 结构预检替代；接入时需让
+  `assetPattern`/资产选择只命中 arm64-v8a 包。
 - 许可合规：zip 必须包含 `THIRD_PARTY_NOTICES.txt`；mihomo 为 GPL-3.0，源码由 `upstream/mihomo` submodule
   （固定 tag）与构建脚本提供，不要移除该文件或改坏复制逻辑。
 

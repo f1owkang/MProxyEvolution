@@ -54,8 +54,12 @@ jobs:
           echo "TAG_VERSION=${TAG_VERSION}" >> "$GITHUB_ENV"
           echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_ENV"
           echo "ASSET_NAME=MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}.zip" >> "$GITHUB_ENV"
+          echo "ASSET_ARM64=MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}-arm64-v8a.zip" >> "$GITHUB_ENV"
+          echo "ASSET_ARMV7=MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}-armeabi-v7a.zip" >> "$GITHUB_ENV"
+          echo "ASSET_X86=MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}-x86.zip" >> "$GITHUB_ENV"
+          echo "ASSET_X8664=MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}-x86_64.zip" >> "$GITHUB_ENV"
           echo "Version check passed: tag=${GITHUB_REF_NAME} module.prop version=${PROP_VERSION} versionCode=${VERSION_CODE}"
-          echo "Release asset: MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}.zip"
+          echo "Release assets: ${TAG_VERSION} universal + 4 per-ABI packages"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -106,26 +110,59 @@ jobs:
             go-build-${{ runner.os }}-
 
       # ---------------------------------------------------------------------
-      # 2. 构建 dist/MProxyEvolution-<versionCode>-<version>.zip + .sha256
+      # 2. 构建 universal + 4 个单架构包（每个包 + .sha256）
+      #    dist/MProxyEvolution-<versionCode>-<version>.zip（universal）
+      #    dist/MProxyEvolution-<versionCode>-<version>-{arm64-v8a,armeabi-v7a,x86,x86_64}.zip
       # ---------------------------------------------------------------------
-      - name: Build module package
-        run: bash scripts/build.sh --version "${TAG_VERSION}"
+      - name: Build module packages (universal + per-ABI)
+        run: bash scripts/build.sh --split --version "${TAG_VERSION}"
 
       - name: Verify build artifacts
         run: |
           set -euo pipefail
           ZIP="dist/${ASSET_NAME}"
-          [ -f "$ZIP" ] || { echo "::error::${ZIP} was not generated"; exit 1; }
+          ABI_ZIPS=("dist/${ASSET_ARM64}" "dist/${ASSET_ARMV7}" "dist/${ASSET_X86}" "dist/${ASSET_X8664}")
+          ABI_DIRS=('arm64' 'arm' '386' 'amd64')
+          ALL_ZIPS=("$ZIP" "${ABI_ZIPS[@]}")
+          for archive in "${ALL_ZIPS[@]}"; do
+            [ -f "$archive" ] || { echo "::error::${archive} was not generated"; exit 1; }
+            [ -f "${archive}.sha256" ] || { echo "::error::${archive}.sha256 was not generated"; exit 1; }
+          done
           ls -lh dist/
-          cat "dist/${ASSET_NAME}.sha256"
-          # 模块包必须能完整解压，且包含模块脚本 / THIRD_PARTY_NOTICES.txt / 正确版本
-          unzip -t "$ZIP" > /dev/null
-          unzip -l "$ZIP" | grep -q 'module.prop'
-          unzip -l "$ZIP" | grep -q 'THIRD_PARTY_NOTICES.txt'
-          unzip -p "$ZIP" module.prop | grep -qx "version=${TAG_VERSION}" \
-            || { echo "::error::module.prop version inside the zip does not match the tag"; exit 1; }
-          unzip -p "$ZIP" module.prop | grep -q '^updateJson=https://raw.githubusercontent.com/' \
-            || { echo "::error::module.prop inside the zip is missing updateJson"; exit 1; }
+          cat dist/*.sha256
+          # 所有包必须能完整解压，且包含模块脚本 / THIRD_PARTY_NOTICES.txt / 正确版本
+          for archive in "${ALL_ZIPS[@]}"; do
+            unzip -t "$archive" > /dev/null
+            unzip -l "$archive" | grep -q 'module.prop'
+            unzip -l "$archive" | grep -q 'THIRD_PARTY_NOTICES.txt'
+            unzip -p "$archive" module.prop | grep -qx "version=${TAG_VERSION}" \
+              || { echo "::error::module.prop version inside ${archive} does not match the tag"; exit 1; }
+            unzip -p "$archive" module.prop | grep -q '^updateJson=https://raw.githubusercontent.com/' \
+              || { echo "::error::module.prop inside ${archive} is missing updateJson"; exit 1; }
+          done
+          # 单架构包只含自己的 ABI（含目标后端/内核，无其它 ABI 目录），且必须 <100MB；
+          # universal 约 130MB，超过 KernelSU Modules 上限，只通过 GitHub Releases 分发。
+          for idx in "${!ABI_ZIPS[@]}"; do
+            archive="${ABI_ZIPS[$idx]}"
+            abi_dir="${ABI_DIRS[$idx]}"
+            size="$(stat -c%s "$archive")"
+            if [ "$size" -ge 104857600 ]; then
+              echo "::error::${archive} is ${size} bytes; per-ABI packages must stay below 100 MiB"
+              exit 1
+            fi
+            unzip -l "$archive" | grep -q "bin/$abi_dir/mproxy" \
+              || { echo "::error::${archive} is missing bin/$abi_dir/mproxy"; exit 1; }
+            unzip -l "$archive" | grep -q "bin/core/$abi_dir/mihomo" \
+              || { echo "::error::${archive} is missing bin/core/$abi_dir/mihomo"; exit 1; }
+            for other in arm64 arm 386 amd64; do
+              [ "$other" = "$abi_dir" ] && continue
+              if unzip -l "$archive" | grep -qE "bin/(core/)?$other/"; then
+                echo "::error::${archive} must not contain ABI directory $other"
+                exit 1
+              fi
+            done
+          done
+          du -h "${ALL_ZIPS[@]}"
 
       # ---------------------------------------------------------------------
       # 3. changelog.txt（同时作为 Release notes 与 update.json 的 changelog 资产）
@@ -166,8 +203,17 @@ jobs:
             echo ""
             echo "### 安装包"
             echo ""
-            echo "- \`${ASSET_NAME}\`：KernelSU / Magisk 模块包（含四架构后端与 mihomo 内核）"
+            echo "- \`${ASSET_NAME}\`：universal 包（四架构后端与 mihomo 内核，应用内自动更新与不确定 ABI 时使用，约 130 MB）"
             echo "- \`${ASSET_NAME}.sha256\`：SHA256 校验和"
+            echo "- \`${ASSET_ARM64}\`：arm64-v8a 单架构包"
+            echo "- \`${ASSET_ARMV7}\`：armeabi-v7a 单架构包"
+            echo "- \`${ASSET_X86}\`：x86 单架构包"
+            echo "- \`${ASSET_X8664}\`：x86_64 单架构包"
+            echo "- 以上 4 个单架构包各含对应 ABI 的后端与内核（约 20-35 MB），同名 \`.sha256\` 校验和"
+            echo ""
+            echo "选择方式：用 \`getprop ro.product.cpu.abi\` 查看设备 ABI —— arm64-v8a → \`${ASSET_ARM64}\`，armeabi-v7a（或 armeabi）→ \`${ASSET_ARMV7}\`，x86 → \`${ASSET_X86}\`，x86_64 → \`${ASSET_X8664}\`。"
+            echo "arm64-v8a / armeabi-v7a 手机推荐下载对应的单架构包（体积更小）；x86 / x86_64（模拟器、电视盒）同样使用对应的单架构包，或使用 universal 包。"
+            echo "应用内自动更新使用 universal 包；4 个单架构包均小于 100 MB，其中 arm64-v8a 单架构包用于提交 KernelSU Modules，universal 包通过 GitHub Releases 分发。"
             echo ""
             echo "安装与升级说明见 [README](https://github.com/${GITHUB_REPOSITORY}/blob/main/README.md)。"
             echo ""
@@ -179,14 +225,13 @@ jobs:
       # ---------------------------------------------------------------------
       # 4. KernelSU Modules 预检说明
       #
-      #    资产命名已统一为 KernelSU Modules 的规范：
-      #    {id}-{versionCode}-{version}.zip（MProxyEvolution-<versionCode>-<version>.zip），
-      #    module.yaml 的 release.assetPattern 为 "MProxyEvolution-*.zip"，因此
-      #    KernelSU-Modules/tools/actions/module-release 的 assetPattern 检查可以通过。
-      #    但仍不接入该 action：四架构模块包约 131MB，超过其 100MB 上限
-      #    （zip-too-large），需要先瘦身（例如只发 arm64 或拆分内核资产）。
-      #    当前用上一步等价的本地 ZIP/module.prop 结构预检；瘦身后可直接替换为
-      #    module-release action。
+      #    资产命名与 KernelSU Modules 规范一致：
+      #    {id}-{versionCode}-<version>.zip（universal）与带 ABI 后缀的单架构包。
+      #    universal 包约 130MB，超过其 100MB 上限，只通过 GitHub Releases 分发；
+      #    4 个单架构包（约 32-36MB，各自 <100MB）均满足上限，KernelSU Modules 收录使用
+      #    arm64-v8a 单架构包（覆盖绝大多数手机），universal 仅作 GitHub Release 资产。
+      #    接入 module-release 时需让 assetPattern/资产选择只命中 arm64-v8a 包；
+      #    当前仍用上一步等价的本地 ZIP/module.prop 结构预检，暂不接入 module-release action。
       # ---------------------------------------------------------------------
 
       # ---------------------------------------------------------------------
@@ -205,6 +250,14 @@ jobs:
           files: |
             dist/${{ env.ASSET_NAME }}
             dist/${{ env.ASSET_NAME }}.sha256
+            dist/${{ env.ASSET_ARM64 }}
+            dist/${{ env.ASSET_ARM64 }}.sha256
+            dist/${{ env.ASSET_ARMV7 }}
+            dist/${{ env.ASSET_ARMV7 }}.sha256
+            dist/${{ env.ASSET_X86 }}
+            dist/${{ env.ASSET_X86 }}.sha256
+            dist/${{ env.ASSET_X8664 }}
+            dist/${{ env.ASSET_X8664 }}.sha256
             changelog.txt
 
       - name: Publish release

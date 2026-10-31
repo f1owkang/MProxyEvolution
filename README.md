@@ -46,15 +46,30 @@ WebUI 一览（概览 / 节点 / 规则 / 连接 / MihomoProxy Evolution 模块 
 
 ## 安装
 
-需要 **KernelSU / KernelSU Next（推荐）或 Magisk 26+**，Android 8.0 及以上，支持 arm64-v8a / armeabi-v7a / x86 / x86_64。从 [Releases](https://github.com/f1owkang/MProxyEvolution/releases) 下载模块包，校验后刷入：
+需要 **KernelSU / KernelSU Next（推荐）或 Magisk 26+**，Android 8.0 及以上，支持 arm64-v8a / armeabi-v7a / x86 / x86_64。从 [Releases](https://github.com/f1owkang/MProxyEvolution/releases) 下载模块包，校验后刷入。每个版本提供 **universal**（四架构，应用内自动更新使用）与 4 个**单架构包**：
 
 | 资产 | 说明 |
 | :-- | :-- |
-| `MProxyEvolution-<versionCode>-<version>.zip` | KernelSU / Magisk 模块包，内含四架构后端与 mihomo 内核；当前为 `MProxyEvolution-1-0.1.0.zip` |
-| `MProxyEvolution-<versionCode>-<version>.zip.sha256` | SHA256 校验和 |
+| `MProxyEvolution-<versionCode>-<version>.zip` | **universal** 包：含四架构后端与 mihomo 内核（arm64-v8a / armeabi-v7a / x86 / x86_64），应用内自动更新与不确定 ABI 时使用；约 130 MB |
+| `MProxyEvolution-<versionCode>-<version>-arm64-v8a.zip` | 单架构包：arm64-v8a（绝大多数手机） |
+| `MProxyEvolution-<versionCode>-<version>-armeabi-v7a.zip` | 单架构包：armeabi-v7a（旧款 32 位 ARM 手机） |
+| `MProxyEvolution-<versionCode>-<version>-x86.zip` | 单架构包：x86（模拟器 / 电视盒） |
+| `MProxyEvolution-<versionCode>-<version>-x86_64.zip` | 单架构包：x86_64（模拟器 / 电视盒） |
+
+每个 zip 都有同名 `.sha256`。单架构包只含对应 ABI 的后端与内核，约 20-35 MB，适合按设备架构下载。
+
+> 选择方式：用 `getprop ro.product.cpu.abi` 查看设备 ABI，下载匹配后缀的单架构包（手机推荐，体积更小）。arm64-v8a / armeabi-v7a 手机用对应架构包；x86 / x86_64（模拟器、电视盒）同样按 ABI 选择，或使用 universal。误装不匹配的单架构包时，安装器会提示下载正确架构或 universal 包。应用内自动更新始终使用 universal。
 
 ```bash
+# 查看设备 ABI（root 终端；也可用 adb shell 执行）
+getprop ro.product.cpu.abi
+
+# 校验（按实际下载的包选择一行）
 sha256sum -c MProxyEvolution-1-0.1.0.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-arm64-v8a.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-armeabi-v7a.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-x86.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-x86_64.zip.sha256
 ```
 
 1. KernelSU / KernelSU Next：在管理器中「模块 → 安装」选择 zip，安装完成后**重启设备**，再点击模块的「打开」按钮进入控制台。
@@ -138,7 +153,7 @@ Android 8.0+，KernelSU / KernelSU Next / Magisk 26+，arm64-v8a / armeabi-v7a /
 - **其它 VPN 并存**：与其它 VPN（包括系统自带 VPN）同时开启可能互相抢占路由，建议只保留一个；双卡、电视盒与热点共享需要真机验证。
 - **管理器冻结 / 省电策略**：内核进程会脱离管理器 cgroup 运行，管理器切后台或被回收不会中断代理；部分 ROM 的激进省电/后台冻结仍可能杀掉进程，建议为管理器与 MihomoProxy Evolution 关闭电池优化。排查时用 `mproxy status` 与 `/data/adb/mproxy/logs/`。
 - **日志位置**：`/data/adb/mproxy/logs/`（`backend.log`、`core.log`、`service.log`），面板「设置 → 诊断」可导出脱敏信息；`service.log` 超过 1 MiB 自动截断并保留最后 2000 行。
-- **包体积**：四架构 zip 约 131 MB，超过 KernelSU Modules 的 100 MB 收录上限，因此暂未提交到 KernelSU Modules，仍可通过 GitHub Releases 安装。
+- **包体积与 KernelSU Modules**：universal（四架构）zip 约 130 MB，超过 KernelSU Modules 的 100 MB 收录上限，因此只通过 GitHub Releases 分发（也是应用内自动更新的目标）；4 个单架构包（arm64-v8a / armeabi-v7a / x86 / x86_64，各约 20-35 MB）均低于 100 MB，提交 KernelSU Modules 时使用 **arm64-v8a** 单架构包（覆盖绝大多数手机）。
 
 ## 从源码构建
 

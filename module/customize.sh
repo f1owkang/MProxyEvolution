@@ -110,6 +110,18 @@ x86_64) ABI_NAME="amd64" ;;
 *) die "不支持的 ABI：$ABI / unsupported ABI: $ABI" ;;
 esac
 
+# 压缩包里是否包含当前 ABI 之外的其它架构（用于识别误装的单架构包）。
+has_other_abi_dir()
+{
+	for _abi in arm64 arm 386 amd64; do
+		[ "$_abi" = "$ABI_NAME" ] && continue
+		if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "bin/$_abi/"; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 # 语言：升级沿用旧文件，否则跟随系统，默认中文。
 T=zh
 oldlang=`cat "/data/adb/modules/$MODID/data/lang" 2>/dev/null | tr -d '\r\n'`
@@ -190,8 +202,16 @@ if [ ! -f "$MPROXY_SRC" ] || [ ! -f "$MIHOMO_SRC" ]; then
 	unzip -o "$ZIPFILE" 'bin/*' -d "$MODPATH" >&2 || true
 fi
 [ -f "$MODPATH/module.prop" ] || die "安装包损坏：缺少 module.prop / corrupt package"
-[ -f "$MPROXY_SRC" ] || die "安装包缺少 $ABI_NAME mproxy / missing mproxy"
-[ -f "$MIHOMO_SRC" ] || die "安装包缺少 $ABI_NAME mihomo / missing mihomo"
+
+# 当前架构二进制缺失但包里仍有其它架构时，说明下载了不匹配的单架构包。
+ABI_HINT=""
+if [ ! -f "$MPROXY_SRC" ] || [ ! -f "$MIHOMO_SRC" ]; then
+	if has_other_abi_dir; then
+		ABI_HINT="（该包只包含其它架构，请下载与设备 ABI 匹配的架构包，或使用 universal 包 / this package contains other ABIs; download the package matching your device ABI or use the universal package）"
+	fi
+fi
+[ -f "$MPROXY_SRC" ] || die "安装包缺少 $ABI_NAME mproxy / missing mproxy$ABI_HINT"
+[ -f "$MIHOMO_SRC" ] || die "安装包缺少 $ABI_NAME mihomo / missing mihomo$ABI_HINT"
 
 # 删除其他架构
 if [ -d "$MODPATH/bin" ]; then

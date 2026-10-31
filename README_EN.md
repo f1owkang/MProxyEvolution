@@ -46,15 +46,30 @@ The WebUI at a glance (Overview / Proxies / Rules / Connections / MihomoProxy Ev
 
 ## Installation
 
-Requires **KernelSU / KernelSU Next (recommended) or Magisk 26+**, Android 8.0+, and one of arm64-v8a / armeabi-v7a / x86 / x86_64. Download the module from [Releases](https://github.com/f1owkang/MProxyEvolution/releases), verify it and flash:
+Requires **KernelSU / KernelSU Next (recommended) or Magisk 26+**, Android 8.0+, and one of arm64-v8a / armeabi-v7a / x86 / x86_64. Download the module from [Releases](https://github.com/f1owkang/MProxyEvolution/releases), verify it and flash. Every release ships a **universal** package (four architectures, used by in-app auto-update) plus four **per-ABI packages**:
 
 | Asset | Description |
 | :-- | :-- |
-| `MProxyEvolution-<versionCode>-<version>.zip` | KernelSU / Magisk module package with four backends and mihomo kernels; currently `MProxyEvolution-1-0.1.0.zip` |
-| `MProxyEvolution-<versionCode>-<version>.zip.sha256` | SHA256 checksum |
+| `MProxyEvolution-<versionCode>-<version>.zip` | **universal** package with four backends and mihomo kernels (arm64-v8a / armeabi-v7a / x86 / x86_64), for in-app auto-update and when the ABI is unknown; about 130 MB |
+| `MProxyEvolution-<versionCode>-<version>-arm64-v8a.zip` | per-ABI package: arm64-v8a (most phones) |
+| `MProxyEvolution-<versionCode>-<version>-armeabi-v7a.zip` | per-ABI package: armeabi-v7a (older 32-bit ARM phones) |
+| `MProxyEvolution-<versionCode>-<version>-x86.zip` | per-ABI package: x86 (emulators / TV boxes) |
+| `MProxyEvolution-<versionCode>-<version>-x86_64.zip` | per-ABI package: x86_64 (emulators / TV boxes) |
+
+Every zip has a matching `.sha256`. Per-ABI packages contain only that ABI's backend and kernel (about 20-35 MB each), so pick the one matching your device.
+
+> Which one: check the device ABI with `getprop ro.product.cpu.abi` and download the matching per-ABI package (recommended for phones, smaller download). arm64-v8a / armeabi-v7a phones use their own package; x86 / x86_64 (emulators, TV boxes) also pick by ABI, or use universal. If a non-matching per-ABI package is flashed, the installer tells you to download the right ABI package or use universal. In-app auto-update always uses universal.
 
 ```bash
+# Show the device ABI (root shell; `adb shell` works too)
+getprop ro.product.cpu.abi
+
+# Verify (use the line matching the package you downloaded)
 sha256sum -c MProxyEvolution-1-0.1.0.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-arm64-v8a.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-armeabi-v7a.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-x86.zip.sha256
+sha256sum -c MProxyEvolution-1-0.1.0-x86_64.zip.sha256
 ```
 
 1. KernelSU / KernelSU Next: choose "Modules → Install" in the manager and pick the zip. **Reboot** after installation, then tap the module's "Open" button to enter the console.
@@ -138,7 +153,7 @@ Android 8.0+, KernelSU / KernelSU Next / Magisk 26+, and arm64-v8a / armeabi-v7a
 - **Other VPNs**: running another VPN at the same time (including the system VPN) may fight over routes; keep only one active. Dual-SIM, TV boxes and hotspot sharing should be validated on the real device.
 - **Manager freezing / battery savers**: the kernel process runs outside the manager's cgroup, so switching the manager to the background or letting it be reaped does not stop proxying. Aggressive ROM battery savers or background freezers may still kill it; disable battery optimisation for the manager and MihomoProxy Evolution. Use `mproxy status` and `/data/adb/mproxy/logs/` when troubleshooting.
 - **Log locations**: `/data/adb/mproxy/logs/` (`backend.log`, `core.log`, `service.log`); the panel's Settings → Diagnostics exports redacted diagnostics. `service.log` is truncated to the last 2000 lines once it exceeds 1 MiB.
-- **Package size**: the four-architecture zip is about 131 MB, above KernelSU Modules' 100 MB limit, so it is not submitted there yet; installs still come from GitHub Releases.
+- **Package size and KernelSU Modules**: the universal (four-architecture) zip is about 130 MB, above KernelSU Modules' 100 MB limit, so it ships only through GitHub Releases (and is the in-app auto-update target); the four per-ABI packages (arm64-v8a / armeabi-v7a / x86 / x86_64, about 20-35 MB each) are all below 100 MB, and the **arm64-v8a** package is the one submitted to KernelSU Modules (covers the vast majority of phones).
 
 ## Build from source
 
