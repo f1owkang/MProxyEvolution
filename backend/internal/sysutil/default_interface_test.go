@@ -30,3 +30,20 @@ func TestDefaultInterfaceDoesNotPanic(t *testing.T) {
 	// 只验证在非 Android 环境也不会 panic/死循环；真实网卡名由解析单测覆盖。
 	_ = DefaultInterface()
 }
+
+func TestParseRouteGetInterface(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"1.1.1.1 dev wlan0 src 192.168.31.99 uid 0", "wlan0"},
+		{"1.1.1.1 via 192.168.31.1 dev wlan0 table wlan0 src 192.168.31.99", "wlan0"},
+		{"RTNETLINK answers: Network is unreachable", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := parseRouteGetInterface(tc.in); got != tc.want {
+			t.Fatalf("parseRouteGetInterface(%q)=%q，期望 %q", tc.in, got, tc.want)
+		}
+	}
+}

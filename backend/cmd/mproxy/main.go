@@ -200,16 +200,13 @@ func autoStartCore(mgr *core.Manager, cfg *config.Manager, logger *log.Logger) {
 		if err == nil {
 			if tunExpected {
 				if st := mgr.Status(); tunStartFailed(st, true) {
-					logger.Printf("自动启动后 TUN 未生效（第 %d/%d 次），停止内核等待网络后重试", attempt, maxAttempts)
-					_ = mgr.Stop()
-					if attempt >= maxAttempts {
-						logger.Printf("TUN 重试 %d 次仍未生效，请联网后通过面板或模块「执行」按钮重启内核", maxAttempts)
-						return
+					logger.Printf("自动启动后 TUN 未生效，切换 akashaProxy 风格手工策略路由")
+					if ferr := mgr.EnableManualTUNFallback(ctx); ferr != nil {
+						logger.Printf("切换手工 TUN 失败（内核保持可用状态，可在面板重试）: %v", ferr)
+					} else {
+						logger.Printf("已切换手工 TUN 模式（tun.auto-route=false），耗时 %s", time.Since(startedAt).Round(time.Millisecond))
 					}
-					if !sleepCtx(ctx, autoStartBackoffs[attempt-1]) {
-						return
-					}
-					continue
+					return
 				}
 			}
 			if attempt > 1 {
@@ -326,7 +323,31 @@ func runBoot(args []string) {
 func runStop(_ []string) {
 	paths := sysutil.NewPaths()
 	stopped := false
-	// 先停内核；结束前校验 pid 对应的命令行确实是 mihomo，避免 pid 被复用时误杀。
+	// 优先走后端 API：/api/core/stop 会同步执行 Manager.Stop（恢复 Private DNS、清理
+	// 手工 TUN 的 iptables/ip rule/route），比直接 kill 进程更完整；随后关闭后端并
+	// 阻塞等待 /healthz 不再响应，保证「停止」返回时规则和进程都已收尾。
+	if ok, _ := checkHealth(1500 * time.Millisecond); ok {
+		if token, terr := readToken(); terr == nil {
+			if err := apiPostWithTimeout(token, "/api/core/stop", nil, 30*time.Second); err != nil {
+				fmt.Fprintf(os.Stderr, "通过 API 停止 mihomo 内核失败，将回退到 pid 清理: %v\n", err)
+			} else {
+				stopped = true
+			}
+			if err := apiPost(token, "/api/backend/shutdown", nil); err != nil {
+				fmt.Fprintf(os.Stderr, "通过 API 关闭后端失败，将回退到 pid 清理: %v\n", err)
+			} else {
+				stopped = true
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				if healthy, _ := checkHealth(400 * time.Millisecond); !healthy {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+	}
+	// 回退路径：API 不可用/超时后按 pid 清理残留进程（同样校验 cmdline，避免误杀）。
 	if pid, err := sysutil.ReadPID(paths.CorePIDPath()); err == nil {
 		if sysutil.IsProcessAlive(pid) && sysutil.ProcessMatches(pid, "mihomo") {
 			if err := sysutil.StopPID(pid, 5*time.Second); err != nil {
@@ -349,13 +370,6 @@ func runStop(_ []string) {
 			stopped = true
 		}
 		sysutil.RemovePIDIfMatch(paths.BackendPIDPath(), pid)
-	} else if ok, _ := checkHealth(800 * time.Millisecond); ok {
-		// 没有 pid 文件但后端仍在运行：尝试通过 API 关闭
-		if token, terr := readToken(); terr == nil {
-			if err := apiPost(token, "/api/backend/shutdown", nil); err == nil {
-				stopped = true
-			}
-		}
 	}
 	if stopped {
 		fmt.Println("MProxyEvolution 已停止")
@@ -502,7 +516,7 @@ func runURL(_ []string) {
 }
 
 func printPanelURL(token string) {
-	fmt.Printf("http://127.0.0.1:9091/?token=%s#/settings?section=moduleSettings\n", token)
+	fmt.Printf("http://127.0.0.1:9091/?token=%s#/\n", token)
 }
 
 func readToken() (string, error) {

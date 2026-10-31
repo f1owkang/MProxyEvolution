@@ -230,7 +230,24 @@ func runCommand(ctx context.Context, timeout time.Duration, name string, args ..
 func DefaultInterface() string {
 	proc, _ := os.ReadFile("/proc/net/route")
 	out, _ := runCommand(context.Background(), 2*time.Second, ipBinary(), "route")
-	return parseDefaultInterface(string(proc), out)
+	if iface := parseDefaultInterface(string(proc), out); iface != "" {
+		return iface
+	}
+	// Android 17 的默认路由常只存在于策略表（如 table wlan0），`ip route` 主表为空；
+	// 用 `ip route get` 让内核按策略规则给出真实出口网卡（akashaProxy 也用这个思路）。
+	get, _ := runCommand(context.Background(), 2*time.Second, ipBinary(), "route", "get", "1.1.1.1")
+	return parseRouteGetInterface(get)
+}
+
+// parseRouteGetInterface 从 `ip route get 1.1.1.1` 输出中解析 `dev <iface>`。
+func parseRouteGetInterface(out string) string {
+	fields := strings.Fields(out)
+	for i, f := range fields {
+		if f == "dev" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
 }
 
 // parseDefaultInterface 从 /proc/net/route 与 `ip route` 输出解析默认网卡。

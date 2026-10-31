@@ -90,6 +90,10 @@ type Manager struct {
 	// 由 mu 保护。回调在锁外执行且 panic 会被 recover，避免影响内核生命周期。
 	stateHook func()
 
+	// manualTUN 表示当前内核使用了 akashaProxy 风格的手工 TUN 策略路由
+	//（tun.auto-route=false），停止/崩溃时必须清理对应的 rule/route/iptables。
+	manualTUN bool
+
 	versionCache string
 	external     bool
 }
@@ -428,6 +432,10 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 				m.logger.Printf("已清理 mihomo 策略路由残留（rule 9000/9001/9010，table 2022）")
 			}
 		}
+		// 清理上一次手工 TUN 的规则（table 2025 / fwmark 2025），避免启动瞬间断网。
+		if device := doc.GetString("Meta", "tun", "device"); device != "" {
+			sysutil.ManualTUNCleanup(device)
+		}
 	}
 	prepareAndroidNetwork(m.logger)
 	// x-mproxy.ipv6 开启时尽力开启 IPv6 转发（TUN 转发 IPv6 流量需要）；失败只告警。
@@ -499,10 +507,88 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 		if st := m.Status(); st.Controller.Reachable && !st.Controller.TunEnabled {
 			m.logger.Printf("TUN 启动失败：控制器报告 tunEnabled=false（内核进程仍在运行）\n%s",
 				sysutil.TUNRoutingSnapshot())
+		} else if !doc.GetBool(true, "tun", "auto-route") {
+			// 参考 akashaProxy 的 tun.proxy：auto-route=false 时由后端自己打 mark、
+			// 建 rule 并把默认路由指向 TUN；mihomo 只负责建卡与处理流量。
+			m.setupManualTUN(doc)
 		}
 	}
 	// 启动成功后通知状态回调（刷新模块描述等旁路状态）。
 	m.notifyStateHook()
+	return nil
+}
+
+// setupManualTUN 为 tun.auto-route=false 的配置安装手工策略路由。
+// 任何失败只记录日志：内核本身仍在运行，面板可用，用户可停用 TUN 或检查日志。
+func (m *Manager) setupManualTUN(doc *config.Doc) {
+	if doc.Has("tun", "include-package") || doc.Has("tun", "exclude-package") {
+		m.logger.Printf("手工 TUN 模式提示：按应用分流依赖 mihomo auto-route，当前配置可能不生效")
+	}
+	device := doc.GetString("Meta", "tun", "device")
+	if !sysutil.WaitTUNDevice(device, 3*time.Second) {
+		m.logger.Printf("手工 TUN 失败：等待设备 %s 超时", device)
+		return
+	}
+	mode, apps := doc.Apps()
+	whitelist := mode == config.AppsWhitelist
+	if err := sysutil.ManualTUNSetup(device, whitelist, apps, doc.GetBool(false, "ipv6")); err != nil {
+		m.logger.Printf("手工 TUN 策略路由安装失败: %v", err)
+		return
+	}
+	m.mu.Lock()
+	m.manualTUN = true
+	m.mu.Unlock()
+	m.logger.Printf("已按 akashaProxy 方式建立 TUN 手工策略路由（设备=%s，mark/table=2025）", device)
+}
+
+// cleanupManualTUN 移除手工 TUN 规则；幂等，未启用时为空操作。
+func (m *Manager) cleanupManualTUN() {
+	m.mu.Lock()
+	manual := m.manualTUN
+	m.manualTUN = false
+	m.mu.Unlock()
+	if !manual {
+		return
+	}
+	device := "Meta"
+	if doc, err := m.cfg.Doc(); err == nil {
+		device = doc.GetString(device, "tun", "device")
+	}
+	sysutil.ManualTUNCleanup(device)
+	m.logger.Printf("已清理 TUN 手工策略路由（设备=%s）", device)
+}
+
+// EnableManualTUNFallback 在自动路由失败后切换到 akashaProxy 风格：
+// 停内核 → 把 tun.auto-route 写为 false（持久化）→ 重启内核并安装手工规则。
+// 该配置会保留，后续启动都走手工模式；用户可在面板改回 auto-route: true。
+func (m *Manager) EnableManualTUNFallback(ctx context.Context) error {
+	m.logger.Printf("TUN 自动路由失败，切换为 akashaProxy 风格手工策略路由（tun.auto-route=false）")
+	if err := m.Stop(); err != nil {
+		return fmt.Errorf("切换手工 TUN 前停止内核失败: %w", err)
+	}
+	doc, err := m.cfg.Doc()
+	if err != nil {
+		return fmt.Errorf("读取配置失败: %w", err)
+	}
+	doc.Set([]string{"tun", "auto-route"}, false)
+	// 同时关闭 mihomo 的 Android 默认网卡监控并写死出口网卡：否则 TUN 手工路由
+	// 建好后，mihomo 仍会不停打印 "Auto detect interface ... get empty name"，
+	// 且出站 DNS 因空网卡失败（表现为“警告一直刷屏 + 无法上网”）。
+	doc.Set([]string{"tun", "auto-detect-interface"}, false)
+	if strings.TrimSpace(doc.GetString("", "interface-name")) == "" {
+		if iface := sysutil.DefaultInterface(); iface != "" {
+			doc.SetTop("interface-name", iface)
+			m.logger.Printf("手工 TUN 模式使用出口网卡: %s", iface)
+		} else {
+			m.logger.Printf("手工 TUN 模式未探测到默认网卡，继续启动（出站可能失败）")
+		}
+	}
+	if _, err := m.cfg.Save(doc); err != nil {
+		return fmt.Errorf("写入 tun.auto-route=false 失败: %w", err)
+	}
+	if err := m.Start(ctx); err != nil {
+		return fmt.Errorf("手工 TUN 模式启动内核失败: %w", err)
+	}
 	return nil
 }
 
@@ -512,6 +598,29 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 // 才探测默认网卡写入，绝不覆盖用户“自动探测网卡”的设置；没有变化时不重写配置。
 func (m *Manager) prepareTUNInterface(doc *config.Doc) {
 	if !doc.GetBool(false, "tun", "enable") {
+		return
+	}
+	// 手工 TUN 模式（auto-route=false）不依赖 mihomo 的 Android 默认网卡监控；
+	// 必须关闭 auto-detect-interface 并写入顶层 interface-name，否则 mihomo 会不断
+	// 打印 "[TUN] Auto detect interface ... get empty name" 且出站 DNS 失败。
+	if !doc.GetBool(true, "tun", "auto-route") {
+		changed := false
+		if doc.GetBool(true, "tun", "auto-detect-interface") {
+			doc.Set([]string{"tun", "auto-detect-interface"}, false)
+			changed = true
+		}
+		if strings.TrimSpace(doc.GetString("", "interface-name")) == "" {
+			if iface := sysutil.DefaultInterface(); iface != "" {
+				doc.SetTop("interface-name", iface)
+				changed = true
+				m.logger.Printf("手工 TUN 模式写入顶层 interface-name: %s", iface)
+			}
+		}
+		if changed {
+			if _, err := m.cfg.Save(doc); err != nil {
+				m.logger.Printf("写入手工 TUN 网卡配置失败（继续启动）: %v", err)
+			}
+		}
 		return
 	}
 	if !doc.Has("tun", "auto-detect-interface") || doc.GetBool(true, "tun", "auto-detect-interface") {
@@ -642,6 +751,8 @@ func (m *Manager) afterExit(pid int, err error) {
 		m.logger.Printf("旧 mihomo 内核已退出（pid=%d，当前状态已被接管）", pid)
 		return
 	}
+	// 内核已退出，指向 TUN 的默认路由会变成黑洞，立即清理手工策略路由。
+	m.cleanupManualTUN()
 	// 比较后删除：只删除内容仍记录本进程 pid 的 pid 文件，避免误删新内核的 pid 文件。
 	sysutil.RemovePIDIfMatch(m.paths.CorePIDPath(), pid)
 	m.writeLastExit(now, pid, err, intentional)
@@ -879,8 +990,9 @@ func (m *Manager) Stop() error {
 	m.mu.Lock()
 	m.intentionalStop = true
 	m.mu.Unlock()
-	// 无论停止成功与否，结束前都通知状态回调刷新外部展示。
+	// 无论停止成功与否，结束前都通知状态回调刷新外部展示；同时清理手工 TUN 规则。
 	defer m.notifyStateHook()
+	defer m.cleanupManualTUN()
 	if err := m.stopProcess(); err != nil {
 		return err
 	}
