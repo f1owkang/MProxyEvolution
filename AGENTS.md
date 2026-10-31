@@ -231,6 +231,14 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   文件恢复原值（与当前设置无关），不要覆盖用户原始模式，也不要让它长期停留在 off。
 - IPv6 默认关闭（`x-mproxy.ipv6=false`）：开启后后端在内核启动时尽力写 `/proc/sys/net/ipv6/conf/{all,default}/forwarding`
   = 1（失败只告警），`post-fs-data.sh` 也做一次 best-effort；关闭时不要额外改 IPv6 转发/DNS。
+- Android TUN 启动兼容（参考 akashaProxy / box4magisk / tunclash）：
+  - 启动 mihomo 前受控清理 sing-tun 默认策略路由残留：`ip rule del pref 9000/9001/9010` 与
+    `ip route flush table 2022`；仅在 Android、TUN 开启且没有运行中的内核时执行，失败只告警。
+  - 通过 `sysutil.ApplyCoreNetAdmin` 给内核子进程补充 **AID_NET_ADMIN(3005)** 组（非 root/非 Android 不处理），
+    与参考模块的 `root:net_admin` 启动方式一致；`cmd.Start` 失败仍按原错误返回。
+  - 内核启动成功但控制器报告 `tunEnabled=false`（TUN 实际失败、进程仍存活）时，把
+    `ip rule show` / `ip route show table all` / `ip link show` 快照写入 backend.log，便于对照排查；
+    `mproxy action` 也会把这种情况判为启动失败。
 - 端口默认：后端 9091、controller 9090、mixed 7890、socks 7891、http 0、DNS 1053；改端口要同步默认模板、
   README 与面板默认值，并注意 `CriticalChanges` 会触发内核重启。
 

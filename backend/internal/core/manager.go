@@ -418,6 +418,17 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	}()
 	// 启动前受控清理“上次异常退出”残留的 TUN 网卡；失败只告警，绝不影响启动。
 	m.cleanupStaleTUN(doc)
+	// 清理 mihomo/sing-tun 的已知策略路由残留（rule 9000/9001/9010、table 2022）。
+	// Android 17 上上一次失败启动可能留下旧规则/路由，导致新内核 add route 失败。
+	if doc.GetBool(false, "tun", "enable") {
+		if ran, err := sysutil.CleanupTUNRouting(); ran {
+			if err != nil {
+				m.logger.Printf("清理 TUN 策略路由残留失败（继续启动）: %v", err)
+			} else {
+				m.logger.Printf("已清理 mihomo 策略路由残留（rule 9000/9001/9010，table 2022）")
+			}
+		}
+	}
 	prepareAndroidNetwork(m.logger)
 	// x-mproxy.ipv6 开启时尽力开启 IPv6 转发（TUN 转发 IPv6 流量需要）；失败只告警。
 	if doc.Settings().IPv6 {
@@ -438,6 +449,9 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	sysutil.SetDetached(cmd)
+	// 参考 akashaProxy / box4magisk：以 root:net_admin 运行内核，Android 17 上部分网络
+	// 操作（建 TUN、策略路由）需要该补充组；非 Android 为空操作。
+	sysutil.ApplyCoreNetAdmin(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("启动 mihomo 内核失败: %w", err)
@@ -478,6 +492,15 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	m.mu.Unlock()
 	m.clearLastExit()
 	m.logger.Printf("mihomo 控制器已就绪（pid=%d）", pid)
+	// TUN 开启时校验控制器是否真的把 tun.enable 生效：mihomo 在 TUN 建链失败时
+	// 进程仍然存活、控制器也可访问，只看 running 会误报成功。失败时写入策略路由
+	// 快照，便于对照参考模块的 ip rule / ip route 输出定位。
+	if sysutil.IsAndroid() && doc.GetBool(false, "tun", "enable") {
+		if st := m.Status(); st.Controller.Reachable && !st.Controller.TunEnabled {
+			m.logger.Printf("TUN 启动失败：控制器报告 tunEnabled=false（内核进程仍在运行）\n%s",
+				sysutil.TUNRoutingSnapshot())
+		}
+	}
 	// 启动成功后通知状态回调（刷新模块描述等旁路状态）。
 	m.notifyStateHook()
 	return nil
