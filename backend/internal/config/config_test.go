@@ -38,6 +38,84 @@ func TestDefaultConfigValid(t *testing.T) {
 	}
 }
 
+// TestDefaultConfigRemoteRules 约束默认模板的远程规则集写法：
+// 规则集必须是 https + 合法 behavior，RULE-SET 必须引用已定义的规则集且目标存在；
+// 默认模板不能使用 GEOIP/GEOSITE（mihomo -t 解析时会尝试下载 geodata，离线校验会失败）。
+func TestDefaultConfigRemoteRules(t *testing.T) {
+	doc, err := NewDefault("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawProviders, ok := doc.Get("rule-providers")
+	if !ok {
+		t.Fatal("默认模板应内置 rule-providers 远程规则集")
+	}
+	providers, ok := rawProviders.(map[string]any)
+	if !ok || len(providers) == 0 {
+		t.Fatalf("rule-providers 应为非空 mapping，得到 %v", rawProviders)
+	}
+	for name, item := range providers {
+		m, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("rule-provider %s 不是 mapping", name)
+		}
+		url, _ := m["url"].(string)
+		if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://127.0.0.1:9091/rules/") {
+			t.Fatalf("rule-provider %s 的 url 必须是 https，得到 %q", name, url)
+		}
+		switch behavior, _ := m["behavior"].(string); behavior {
+		case "domain", "ipcidr", "classical":
+		default:
+			t.Fatalf("rule-provider %s 的 behavior 非法: %q", name, behavior)
+		}
+		if path, _ := m["path"].(string); !strings.HasPrefix(path, "./rules/") {
+			t.Fatalf("rule-provider %s 应把缓存写到 ./rules/ 下，得到 %q", name, path)
+		}
+	}
+
+	targets := map[string]bool{"DIRECT": true, "REJECT": true}
+	if rawGroups, ok := doc.Get("proxy-groups"); ok {
+		if groups, ok := rawGroups.([]any); ok {
+			for _, g := range groups {
+				if gm, ok := g.(map[string]any); ok {
+					if name, _ := gm["name"].(string); name != "" {
+						targets[name] = true
+					}
+				}
+			}
+		}
+	}
+	used := map[string]bool{}
+	for _, rule := range doc.GetStringSlice("rules") {
+		if strings.HasPrefix(rule, "GEOIP,") || strings.HasPrefix(rule, "GEOSITE,") {
+			t.Fatalf("默认模板不应使用 %s：mihomo -t 会触发 geodata 下载导致离线校验失败", rule)
+		}
+		fields := strings.Split(rule, ",")
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] != "RULE-SET" {
+			continue
+		}
+		if len(fields) < 3 {
+			t.Fatalf("RULE-SET 规则格式错误: %q", rule)
+		}
+		name := fields[1]
+		if _, ok := providers[name]; !ok {
+			t.Fatalf("规则引用了不存在的 rule-provider: %q", rule)
+		}
+		used[name] = true
+		if !targets[fields[2]] {
+			t.Fatalf("RULE-SET 目标分组不存在: %q", rule)
+		}
+	}
+	for name := range providers {
+		if !used[name] {
+			t.Fatalf("rule-provider %s 未被任何规则引用", name)
+		}
+	}
+}
+
 func TestParseAndSummary(t *testing.T) {
 	yaml := `
 mixed-port: 7890
@@ -130,8 +208,8 @@ func TestMergePatch(t *testing.T) {
 	if got := doc.GetString("", "dns", "fake-ip-range"); got == "" {
 		t.Fatal("patch 不应清空 dns 其他字段")
 	}
-	if _, ok := doc.Get("dns", "fallback"); !ok {
-		t.Fatal("patch 不应删除 dns.fallback")
+	if _, ok := doc.Get("dns", "nameserver"); !ok {
+		t.Fatal("patch 不应删除 dns.nameserver")
 	}
 }
 
