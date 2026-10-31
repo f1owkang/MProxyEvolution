@@ -115,6 +115,8 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - HTTP 只走 `src/api/mproxy.ts`（token 来自 `window.__MPROXY_TOKEN__` / sessionStorage，`X-MProxy-Token`
   头，30s 超时），不要在组件里直接 `fetch` `/api`，也不要引入第二套配置存储或跨域请求。
 - 用户可见文案走 vue-i18n，新增 key 至少覆盖 `zh` / `en`，并同步 `zh-tw` / `ru`。
+  MProxyEvolution 控制台（`src/components/mproxy/**`、`MProxyPage.vue`、`ModuleSettings.vue`）已全部
+  迁移 i18n，四个 locale 的 `mproxy*` key 集合必须保持一致；不要回退成硬编码中文文案。
 - `sessionStorage['mproxy/token']`、`/api/mproxy/*` 等契约与标识符不要改名。
 - PWA/service worker 已关闭、`dashboardUpgrade` 已禁用，不要重新引入；edge-to-edge 由
   `public/mproxy-boot.js` 的 `enableEdgeToEdge`/`enableInsets` + `index.html` 静态 `/internal/insets.css`
@@ -135,8 +137,10 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 ### YAML / 配置
 
 - `config.yaml` 的键名、`x-mproxy` 字段与默认值是对外契约：`version`、`auto-start`、`proxy-mode`、
-  `update-channel`、`ghproxy`、`onboarded`、`private-dns`，不要改名或换类型；缺失字段用
-  `DefaultSettings()` 兼容（`private-dns` 缺失/未知回退 `auto`，写入路径严格校验 `auto|keep`）。
+  `update-channel`、`ghproxy`、`onboarded`、`private-dns`、`ipv6`，不要改名或换类型；缺失字段用
+  `DefaultSettings()` 兼容（`private-dns` 缺失/未知回退 `auto`，写入路径严格校验 `auto|keep`；
+  `ipv6` 旧配置回退顶层 `ipv6`，默认 `false`）。`x-mproxy.ipv6` 是 IPv6 唯一开关，写入时同步顶层
+  `ipv6` 与 `dns.ipv6`，变更会触发内核重启。
 - `tun.enable` 与 `x-mproxy.proxy-mode` 必须一致（tun ↔ true，mixed ↔ false）；`tun.include-package`
   存在即白名单，`exclude-package` 存在即黑名单，互斥。
 - `update.json` 与 `.release-baseline` 发版后由 CI 回写，不要手改。
@@ -187,6 +191,10 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 
 - `serve`：建目录、加载/生成配置、写 `state/backend.pid`、按 `auto-start` 异步启动内核（Android 最多等默认
   路由 120s、带退避重试 3 次；桌面开发 8s）；收到 SIGINT/SIGTERM 退出但内核保持运行。
+- 模块描述：`mproxy serve` 启动、内核启动/停止/崩溃/看门狗重启以及 `/api/status` 轮询时，best-effort 把
+  当前状态与配置摘要写回**已安装模块** `module.prop` 的 `description=` 行（唯一允许修改的行；保留
+  id/name/version/顺序，原子 rename、LF 无 BOM、内容相同不重写；`module.prop` 不存在时静默跳过）。
+  任何写失败只记日志，不得阻断启动或状态接口；KernelSU/Magisk 是否刷新模块页需真机验证。
 - 启动内核：先清理同路径残留进程（仅 Android，按 `/proc/<pid>/cmdline` 匹配）；检测到外部 controller
   可达则只接管状态/代理，不停止外部内核；等待 controller `/version` 最多 15s，失败带日志尾部并清理进程。
   - 启动成功与后端自身启动时尽力移入根 cgroup（cgroup v2 `/sys/fs/cgroup/cgroup.procs`），避免管理器
@@ -218,6 +226,8 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - TUN 启动前按 `x-mproxy.private-dns` 决定是否临时保存并关闭系统 Private DNS（`state/private_dns`，
   0600，已存在不覆盖）：`auto`（默认）关闭，`keep` 完全不动系统设置；停止或自愈失败时**始终**按状态
   文件恢复原值（与当前设置无关），不要覆盖用户原始模式，也不要让它长期停留在 off。
+- IPv6 默认关闭（`x-mproxy.ipv6=false`）：开启后后端在内核启动时尽力写 `/proc/sys/net/ipv6/conf/{all,default}/forwarding`
+  = 1（失败只告警），`post-fs-data.sh` 也做一次 best-effort；关闭时不要额外改 IPv6 转发/DNS。
 - 端口默认：后端 9091、controller 9090、mixed 7890、socks 7891、http 0、DNS 1053；改端口要同步默认模板、
   README 与面板默认值，并注意 `CriticalChanges` 会触发内核重启。
 
@@ -279,6 +289,10 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - TUN/真实网络：`/dev/net/tun`、`ip_forward`、fake-ip DNS、按应用分流、与其它 VPN 冲突、订阅下载与 ghproxy；
   交叉编译的 linux 二进制不能在 Windows 运行，Windows 版 `mihomo.exe` 不代表 TUN 行为。
 - GitHub Actions 的 release 回写、release immutability、KernelSU Modules 收录与体积限制。
+- 动态模块描述：只有 Android 真机安装后才有 `/data/adb/modules/MProxyEvolution/module.prop`；KernelSU / Magisk
+  模块页是否在刷新时重新读取 description、以及管理器自身的缓存行为，必须真机验证。
+- IPv6 与面板多语言：IPv6 forwarding、运营商 IPv6、TUN IPv6 分流只能在真机验证；控制台四种语言的实际
+  排版/截断（尤其长俄语/繁体文案）需在 KernelSU WebView 中检查。
 
 ## 提交前检查清单
 

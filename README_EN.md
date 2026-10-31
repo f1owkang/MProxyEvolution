@@ -24,13 +24,16 @@ English | [简体中文](README.md)
 - **Everything in the WebUI**: reuses zashboard's Overview, Proxies, Rules, Connections and Logs pages, and adds a "Settings → Module" section for kernel install/update, start/stop, YAML editing and validation, subscription import, per-app routing, auto-start and diagnostics.
 - **Same-origin access, no CORS**: the Go backend embeds the panel assets and listens only on `127.0.0.1:9091`; `/api/mihomo/*` reverse-proxies the mihomo controller (HTTP / SSE / WebSocket), so the panel never talks to the controller port directly and there is no mixed-content issue.
 - **TUN transparent proxy**: TUN + fake-ip DNS enabled by default, with allow-list / deny-list per-app routing; rules, DNS, ports and subscriptions remain fully editable.
+- **Dynamic module description**: the backend writes the live state, proxy mode, mixed port, proxy / rule counts and kernel version back into the installed module's `module.prop` description, so the KernelSU / Magisk module page shows the current status without opening the panel.
+- **Optional IPv6**: off by default; enabling it under Kernel → IPv6 in the panel syncs mihomo's top-level `ipv6` and `dns.ipv6` and best-effort enables IPv6 forwarding (availability depends on the device and carrier).
+- **Multilingual panel**: the MihomoProxy Evolution console supports Simplified Chinese / English / Traditional Chinese / Russian.
 - **Safe config writes**: when the kernel is installed, every save is validated with `mihomo -t`, written to a temp file and atomically renamed, keeping a single backup at `config.yaml.bak`; a failed validation never overwrites the previous config.
 - **Four architectures**: arm64-v8a / armeabi-v7a / x86 / x86_64. The module zip bundles all four backends and kernels; the installer keeps only the device's architecture.
 - **Reproducible upstream**: mihomo is pinned to a release tag as a git submodule; zashboard uses a fork on the `panel` branch with `panel.lock` pinning the exact build commit, and CI checks for upstream updates and opens sync PRs daily.
 
 ## Screenshots
 
-The WebUI at a glance (Overview / Proxies / Rules / Connections / MihomoProxy Evolution module / Settings). The nodes, traffic, rules and logs shown are **fabricated demo data**, used only to illustrate the UI — they do not represent any real device, network or measured result. The MihomoProxy Evolution module console is currently Simplified Chinese only, so its preview uses the Chinese screenshot.
+The WebUI at a glance (Overview / Proxies / Rules / Connections / MihomoProxy Evolution module / Settings). The nodes, traffic, rules and logs shown are **fabricated demo data**, used only to illustrate the UI — they do not represent any real device, network or measured result. The MihomoProxy Evolution console supports Simplified Chinese / English / Traditional Chinese / Russian; the preview uses the Chinese UI.
 
 <div align="center">
 

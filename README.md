@@ -24,13 +24,16 @@
 - **全部在 WebUI 完成**：复用 zashboard 的概览、节点、规则、连接、日志页面，并在「设置 → 模块」补齐内核安装 / 更新、启停、配置编辑与校验、订阅导入、应用分流、开机自启与诊断。
 - **同源访问，无跨域**：Go 后端内嵌面板静态资源并只监听 `127.0.0.1:9091`；`/api/mihomo/*` 反向代理 mihomo controller（含 HTTP / SSE / WebSocket），面板无需直连内核端口，也不存在混合内容问题。
 - **TUN 透明代理**：默认开启 TUN + fake-ip DNS，支持按应用白名单 / 黑名单分流；规则、DNS、端口与订阅仍可自由修改。
+- **动态模块描述**：后端把运行状态、代理模式、混合端口、节点 / 规则数与内核版本实时写回已安装模块的 `module.prop` 描述，KernelSU / Magisk 模块页无需打开面板即可看到当前运行情况。
+- **IPv6 可选**：默认关闭；在面板「内核 → IPv6」开启后会同步 mihomo 顶层 `ipv6` 与 `dns.ipv6` 并尽力开启 IPv6 转发（是否可用取决于设备与运营商）。
+- **多语言面板**：MihomoProxy Evolution 控制台支持简体中文 / English / 繁體中文 / Русский。
 - **配置写入安全**：内核已安装时，保存前执行 `mihomo -t` 校验；先写临时文件再原子替换，并保留单份备份 `config.yaml.bak`，校验失败不会覆盖旧配置。
 - **四架构开箱即用**：arm64-v8a / armeabi-v7a / x86 / x86_64；模块 zip 内置四套后端与内核，安装器只保留当前设备架构。
 - **可复现的上游**：mihomo 以 git submodule 固定到 release tag；zashboard 采用 fork + `panel` 分支，`panel.lock` 固定构建 commit，CI 每日检查上游版本并发起同步 PR。
 
 ## 界面预览
 
-WebUI 一览（概览 / 节点 / 规则 / 连接 / MihomoProxy Evolution 模块 / 设置）。截图中的节点、流量、规则与日志均为**虚构的演示数据**，仅用于展示界面效果，不代表真实设备、真实网络或实测结果。
+WebUI 一览（概览 / 节点 / 规则 / 连接 / MihomoProxy Evolution 模块 / 设置）。截图中的节点、流量、规则与日志均为**虚构的演示数据**，仅用于展示界面效果，不代表真实设备、真实网络或实测结果。MihomoProxy Evolution 控制台支持简体中文 / English / 繁體中文 / Русский，预览截图使用中文界面。
 
 <div align="center">
 
