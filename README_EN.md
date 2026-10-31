@@ -79,6 +79,7 @@ sha256sum -c MProxyEvolution-1-0.1.0-x86_64.zip.sha256
 2. Magisk: after flashing and rebooting, run `su -c /data/adb/mproxy/bin/mproxy boot` in a root shell and open the printed URL containing the token (Magisk has no built-in WebUI entry).
 3. The first launch walks you through installing/updating the kernel and importing nodes or subscriptions; an existing `config.yaml` is never overwritten during module upgrades.
 4. The installer asks you to pick a language and confirm with the volume keys; with no key pressed for 30 seconds it continues automatically, and Volume- cancels. For unattended/scripted installs set `MPROXY_HEADLESS=1` to skip the key prompts (e.g. `MPROXY_HEADLESS=1 ksud module install <zip>`).
+5. The KernelSU / KernelSU Next module page's "Execute" button starts/stops the service. On start it blocks until the kernel is actually ready and, on failure, prints the reason plus the kernel/backend log tail (up to about 2 minutes).
 
 See the [FAQ](#faq) below for installation details, uninstalling and troubleshooting.
 

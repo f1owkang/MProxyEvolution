@@ -79,6 +79,7 @@ sha256sum -c MProxyEvolution-1-0.1.0-x86_64.zip.sha256
 2. Magisk：安装 zip 并重启后，用 root 终端执行 `su -c /data/adb/mproxy/bin/mproxy boot`，打开输出的带 token 地址（Magisk 没有内置 WebUI 入口）。
 3. 首次进入会按引导安装 / 更新内核、导入节点或订阅；升级模块时已有的 `config.yaml` 与订阅不会被覆盖。
 4. 安装器会提示用音量键选择语言并确认安装；30 秒未按键会自动继续安装，音量- 可取消。无人值守/脚本安装可设置 `MPROXY_HEADLESS=1` 跳过按键流程（如 `MPROXY_HEADLESS=1 ksud module install <zip>`）。
+5. KernelSU / KernelSU Next 模块页的「执行」按钮用于启动 / 停止服务；启动时会阻塞等待内核真正就绪，失败会直接显示原因与内核 / 后端日志尾部（最多约 2 分钟）。
 
 安装细节、卸载与排错见下方[常见问题](#常见问题)。
 

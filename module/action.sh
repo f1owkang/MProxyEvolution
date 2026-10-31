@@ -1,6 +1,7 @@
 #!/system/bin/sh
 # MihomoProxy Evolution 模块操作按钮（KernelSU / Magisk 模块页的「执行」按钮）
-# 行为：切换后端与内核的运行状态，并输出统一格式的状态摘要。
+# 行为：切换后端与内核的运行状态；启动时阻塞等待内核真正就绪（控制器可达、TUN 状态符合预期），
+# 失败时当场输出原因与内核/后端日志尾部，不再只留下一条“已启动”。
 # 输出约定：除标题与分隔线外，每行固定为「[标签] 内容」；中英双语跟随安装时选择的语言；
 # 面板地址只出现一次，诊断输出里的 token 一律脱敏。
 
@@ -118,13 +119,18 @@ else
 fi
 say "$(L "[操作] 切换服务状态：$toggle_target" "[action] toggle service: $toggle_target")"
 
-"$MPROXY_BIN" toggle > "$TMP_OUT" 2>&1
+# action 子命令在启动路径会阻塞等待内核就绪，最坏约 2 分钟；外层 timeout 兜底防止卡死。
+if command -v timeout >/dev/null 2>&1; then
+  timeout 180 "$MPROXY_BIN" action > "$TMP_OUT" 2>&1
+else
+  "$MPROXY_BIN" action > "$TMP_OUT" 2>&1
+fi
 rc=$?
 if [ "$rc" -ne 0 ]; then
-  say "$(L "[错误] 切换失败（退出码 $rc）" "[error] toggle failed (exit $rc)")"
+  say "$(L "[错误] 操作失败（退出码 $rc）" "[error] action failed (exit $rc)")"
   if [ -s "$TMP_OUT" ]; then
     say "$(L "[详情] 最近输出：" "[detail] last output:")"
-    sed -e 's/token=[0-9A-Za-z]*/token=***/g' "$TMP_OUT" | tail -n 5 | sed 's/^/  /'
+    sed -e 's/token=[0-9A-Za-z]*/token=***/g' "$TMP_OUT" | tail -n 20 | sed 's/^/  /'
   fi
   say "$(L "[提示] 日志：$LOG_DIR/" "[hint] logs: $LOG_DIR/")"
   rule
@@ -132,9 +138,9 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 if [ "$was_running" -eq 1 ]; then
-  say "$(L "[结果] 后端已停止。" "[result] backend stopped.")"
+  say "$(L "[结果] 后端与内核已停止。" "[result] backend and kernel stopped.")"
 else
-  say "$(L "[结果] 后端已启动。" "[result] backend started.")"
+  say "$(L "[结果] 内核已启动并就绪。" "[result] kernel started and ready.")"
 fi
 
 # 切换后做一次状态校验，避免退出码为 0 但服务实际未就绪。

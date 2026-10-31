@@ -153,6 +153,12 @@ check 'README_EN.md documents per-ABI packages' \
     && grep -qF "ro.product.cpu.abi" README_EN.md'
 check 'customize.sh hints per-ABI mismatch' \
   grep -qF '该包只包含其它架构' module/customize.sh
+check 'action.sh uses mproxy action (blocking startup)' \
+  grep -qF '"$MPROXY_BIN" action' module/action.sh
+check 'action.sh wraps action in a 180s timeout' \
+  grep -qF 'timeout 180 "$MPROXY_BIN" action' module/action.sh
+check 'action.sh no longer invokes mproxy toggle directly' \
+  bash -c '! grep -qF "\"$MPROXY_BIN\" toggle" module/action.sh'
 check 'no slim variant references remain in packaging files' \
   bash -c '! grep -riq slim scripts/build.sh scripts/build.ps1 .github/workflows/ci.yml .github/workflows/release.yml README.md README_EN.md module/customize.sh'
 

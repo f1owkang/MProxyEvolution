@@ -35,6 +35,7 @@ const usage = `MProxyEvolution 后端
   mproxy stop                  停止内核与后端
   mproxy status                输出中文状态摘要（未运行返回非 0）
   mproxy toggle                运行中则停止，否则拉起
+  mproxy action                模块页「执行」按钮：切换服务；启动时阻塞等待内核就绪，失败立即报错
   mproxy url                   输出带 token 的面板地址
   mproxy version               输出版本号
 
@@ -62,6 +63,8 @@ func main() {
 		runStatus(args)
 	case "toggle":
 		runToggle(args)
+	case "action":
+		runAction(args)
 	case "url":
 		runURL(args)
 	case "version", "-v", "--version":
@@ -236,6 +239,45 @@ func refreshModuleDescription(mgr *core.Manager, cfg *config.Manager, paths sysu
 	}
 }
 
+// startBackendDetached 确保后端已启动，返回 token；失败时返回错误而不是直接退出，
+// 便于 action 子命令在启动内核前给出明确的失败原因。
+func startBackendDetached() (string, error) {
+	if ok, _ := checkHealth(1500 * time.Millisecond); ok {
+		return readToken()
+	}
+
+	paths := sysutil.NewPaths()
+	if err := paths.EnsureDirs(); err != nil {
+		return "", err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("获取可执行文件路径失败: %w", err)
+	}
+	cmd := exec.Command(exe, "serve")
+	// 不要把 backend.log 作为 detached 子进程的输出：新后端 runServe 里会自己打开
+	// RotatingWriter 写同一个文件，两处同时写会导致日志重复、轮转统计失效。
+	// 传空串让子进程 stdout/stderr 指向 /dev/null，由新后端的 RotatingWriter 唯一负责。
+	if err := sysutil.StartDetached(cmd, ""); err != nil {
+		return "", fmt.Errorf("拉起后端失败: %w", err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if ok, herr := checkHealth(800 * time.Millisecond); ok {
+			return readToken()
+		} else {
+			lastErr = herr
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	tail, _ := sysutil.TailFile(paths.BackendLogPath(), 30)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("健康检查超时")
+	}
+	return "", fmt.Errorf("后端启动超时: %w\n后端日志：\n%s", lastErr, strings.Join(tail, "\n"))
+}
+
 // runBoot 检测后端，未启动则脱离拉起，最后一行输出面板 URL。
 func runBoot(args []string) {
 	fs := flag.NewFlagSet("boot", flag.ContinueOnError)
@@ -246,47 +288,11 @@ func runBoot(args []string) {
 	}
 	_ = bootFlag
 
-	if ok, _ := checkHealth(1500 * time.Millisecond); ok {
-		token, err := readToken()
-		if err != nil {
-			fatalf("%v", err)
-		}
-		printPanelURL(token)
-		return
-	}
-
-	paths := sysutil.NewPaths()
-	if err := paths.EnsureDirs(); err != nil {
+	token, err := startBackendDetached()
+	if err != nil {
 		fatalf("%v", err)
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		fatalf("获取可执行文件路径失败: %v", err)
-	}
-	cmd := exec.Command(exe, "serve")
-	// 不要把 backend.log 作为 detached 子进程的输出：新后端 runServe 里会自己打开
-	// RotatingWriter 写同一个文件，两处同时写会导致日志重复、轮转统计失效。
-	// 传空串让子进程 stdout/stderr 指向 /dev/null，由新后端的 RotatingWriter 唯一负责。
-	if err := sysutil.StartDetached(cmd, ""); err != nil {
-		fatalf("拉起后端失败: %v", err)
-	}
-	deadline := time.Now().Add(20 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		if ok, herr := checkHealth(800 * time.Millisecond); ok {
-			token, terr := readToken()
-			if terr != nil {
-				fatalf("%v", terr)
-			}
-			printPanelURL(token)
-			return
-		} else {
-			lastErr = herr
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	tail, _ := sysutil.TailFile(paths.BackendLogPath(), 30)
-	fatalf("后端启动超时: %v\n后端日志：\n%s", lastErr, strings.Join(tail, "\n"))
+	printPanelURL(token)
 }
 
 // runStop 停止内核与后端。
@@ -374,6 +380,91 @@ func runToggle(args []string) {
 	runBoot(args)
 }
 
+// runAction 是模块页「执行」按钮的实现：运行中则停止；未运行时拉起后端并阻塞等待内核
+// 真正就绪（控制器可达、TUN 状态符合预期），失败时立即输出原因与内核/后端日志尾部。
+func runAction(_ []string) {
+	if ok, _ := checkHealth(1500 * time.Millisecond); ok {
+		runStop(nil)
+		return
+	}
+
+	token, err := startBackendDetached()
+	if err != nil {
+		fatalf("%v", err)
+	}
+
+	var st statusResponse
+	if err := apiGet(token, "/api/status", &st); err != nil {
+		fatalCore("读取内核状态失败: " + err.Error())
+	}
+	if !st.Core.Installed {
+		fatalCore("内核未安装：请打开 WebUI 安装内核后重试")
+	}
+
+	if !st.Core.Running {
+		if err := apiPostWithTimeout(token, "/api/core/start", nil, 90*time.Second); err != nil {
+			// 自动启动可能刚好在并发进行：若状态显示已在运行则继续等待，否则立即报错。
+			var cur statusResponse
+			if apiGet(token, "/api/status", &cur) != nil || !cur.Core.Running {
+				fatalCore("内核启动失败: " + err.Error())
+			}
+			st = cur
+		} else if err := apiGet(token, "/api/status", &st); err != nil {
+			fatalCore("读取内核状态失败: " + err.Error())
+		}
+	}
+
+	deadline := time.Now().Add(25 * time.Second)
+	for {
+		var cur statusResponse
+		if err := apiGet(token, "/api/status", &cur); err == nil {
+			st = cur
+		}
+		if st.Core.Running && st.Core.Controller.Reachable {
+			// TUN 开启时要求控制器也确认 tunEnabled；mihomo 启动失败 TUN 时进程仍会存活，
+			// 只看 running 会误报成功。
+			if !st.Config.Summary.TunEnabled || st.Core.Controller.TunEnabled {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			switch {
+			case st.Core.Running && st.Core.Controller.Reachable &&
+				st.Config.Summary.TunEnabled && !st.Core.Controller.TunEnabled:
+				fatalCore("内核已启动，但 TUN 未生效（控制器报告 tunEnabled=false）；" +
+					"常见原因是默认网卡/网络未就绪，联网后重试或检查 config.yaml 的 tun 配置")
+			default:
+				fatalCore("等待内核就绪超时（控制器不可达）")
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	fmt.Printf("内核已启动：%s（pid %d）\n", unknown(st.Core.Version), st.Core.PID)
+	fmt.Printf("控制器：%s:%d %s\n", st.Core.Controller.Host, st.Core.Controller.Port,
+		reachText(st.Core.Controller.Reachable))
+	fmt.Printf("TUN：%s\n", tunText(st.Config.Summary.TunEnabled))
+	if st.Core.LastExit != "" {
+		fmt.Printf("上次退出：%s\n", st.Core.LastExit)
+	}
+}
+
+// fatalCore 输出启动失败原因，并附带内核/后端日志尾部，便于模块页「执行」按钮当场定位。
+func fatalCore(reason string) {
+	paths := sysutil.NewPaths()
+	var b strings.Builder
+	b.WriteString(reason)
+	if tail, err := sysutil.TailFile(paths.CoreLogPath(), 20); err == nil && len(tail) > 0 {
+		b.WriteString("\n内核日志（最后 20 行）：\n")
+		b.WriteString(strings.Join(tail, "\n"))
+	}
+	if tail, err := sysutil.TailFile(paths.BackendLogPath(), 15); err == nil && len(tail) > 0 {
+		b.WriteString("\n后端日志（最后 15 行）：\n")
+		b.WriteString(strings.Join(tail, "\n"))
+	}
+	fatalf("%s", b.String())
+}
+
 // runURL 输出带 token 的面板地址。
 func runURL(_ []string) {
 	token, err := readToken()
@@ -433,6 +524,11 @@ func apiGet(token, path string, dst any) error {
 }
 
 func apiPost(token, path string, body []byte) error {
+	return apiPostWithTimeout(token, path, body, 10*time.Second)
+}
+
+// apiPostWithTimeout 与 apiPost 相同，但允许调用方放宽超时（内核启动接口可能阻塞数十秒）。
+func apiPostWithTimeout(token, path string, body []byte, timeout time.Duration) error {
 	reader := io.Reader(nil)
 	if body != nil {
 		reader = strings.NewReader(string(body))
@@ -442,7 +538,7 @@ func apiPost(token, path string, body []byte) error {
 		return err
 	}
 	req.Header.Set("X-MProxy-Token", token)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -467,10 +563,13 @@ type statusResponse struct {
 		Running    bool   `json:"running"`
 		PID        int    `json:"pid"`
 		Version    string `json:"version"`
+		Restarts   int    `json:"restarts"`
+		LastExit   string `json:"lastExit"`
 		Controller struct {
-			Host      string `json:"host"`
-			Port      int    `json:"port"`
-			Reachable bool   `json:"reachable"`
+			Host       string `json:"host"`
+			Port       int    `json:"port"`
+			Reachable  bool   `json:"reachable"`
+			TunEnabled bool   `json:"tunEnabled"`
 		} `json:"controller"`
 	} `json:"core"`
 	Config struct {

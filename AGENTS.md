@@ -133,6 +133,9 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - 已有 `config.yaml` 绝不覆盖；升级时先 `mproxy stop`，二进制写 `.new` 再 `mv`（避免 `Text file busy`）。
 - `service.sh` 等 `sys.boot_completed=1`（最多约 120s）再 `mproxy boot --boot`，有 `timeout` 时包裹 180s；
   日志追加 `logs/service.log`；控制台输出中文短句，平台差异用能力探测而非管理器类型硬编码。
+- `action.sh` 调 `mproxy action`：运行中则停止；未运行时拉起后端并**阻塞等待**内核就绪
+  （控制器可达；TUN 开启时还要求 controller 报告 `tunEnabled=true`），失败打印原因与内核/后端日志尾部并
+  返回非 0；外层 `timeout 180` 兜底。不要把这里退回成只调用 `mproxy toggle` 后立刻成功。
 
 ### YAML / 配置
 
