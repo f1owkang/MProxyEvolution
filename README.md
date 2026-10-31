@@ -12,7 +12,7 @@
 
 [English](README_EN.md) | 简体中文
 
-[特性](#特性) ｜ [界面预览](#界面预览) ｜ [安装](#安装) ｜ [工作原理](#工作原理) ｜ [常见问题](#常见问题) ｜ [从源码构建](#从源码构建) ｜ [上游同步](#上游同步) ｜ [免责声明](#免责声明) ｜ [License](#license)
+[特性](#特性) ｜ [界面预览](#界面预览) ｜ [安装](#安装) ｜ [工作原理](#工作原理) ｜ [常见问题](#常见问题) ｜ [兼容性](#兼容性) ｜ [已知限制](#已知限制) ｜ [从源码构建](#从源码构建) ｜ [上游同步](#上游同步) ｜ [免责声明](#免责声明) ｜ [License](#license)
 
 </div>
 
@@ -116,6 +116,29 @@ KernelSU / Magisk WebView
 
 Android 8.0+，KernelSU / KernelSU Next / Magisk 26+，arm64-v8a / armeabi-v7a / x86 / x86_64。TUN 模式需要内核支持 `/dev/net/tun`（部分原厂内核不支持）。
 </details>
+
+## 兼容性
+
+| 环境 | 状态 | 说明 |
+| :-- | :-- | :-- |
+| KernelSU / KernelSU Next | ✅ 支持（推荐） | 管理器内置 WebUI 入口，安装并重启后点「打开」即可 |
+| Magisk 26+ | ✅ 支持 | 无内置 WebUI，重启用 root 终端执行 `su -c /data/adb/mproxy/bin/mproxy boot` |
+| APatch | ⚠️ 尽力支持（best-effort） | 兼容 Magisk 模块格式，安装器会检测 `/data/adb/apd` 并在输出中提示；未纳入 CI 与真机回归 |
+| Android 8.0+，arm64-v8a / armeabi-v7a / x86 / x86_64 | ✅ 支持 | 需要内核支持 `/dev/net/tun`（部分原厂内核裁剪） |
+
+- 模块必须由 **Magisk / KernelSU / KernelSU Next / APatch 管理器**（或等价的模块安装器入口）安装；安装器检测到 `BOOTMODE=false/0` 时会拒绝继续，避免在非模块环境写坏目录。
+- 脚本化安装（如 `ksud module install`）可设置 `MPROXY_HEADLESS=1` 跳过音量键选择并自动安装。
+- APatch 属于尽力支持：脚本按 Magisk 模块格式运行，但尚未做完整真机回归；反馈问题时请附面板「设置 → 诊断」导出内容与 `/data/adb/mproxy/logs/` 日志。
+
+## 已知限制
+
+- **仅支持 TUN 模式**：`proxy-mode` 只接受 `tun` 与 `mixed`，v0.1 不提供 tproxy / redirect；透明代理统一走 TUN。
+- **热点 / USB 共享等下游设备不保证**：TUN 由 mihomo `auto-route` 负责本机流量，共享给其它设备的流量是否被代理取决于 ROM 与网络栈，当前不做保证。
+- **Private DNS（DoT）**：TUN 运行期间模块会保存并自动关闭系统 Private DNS（`private_dns_mode`），停止时恢复原值（异常退出后后端尽力恢复），避免 DoT 绕过 fake-ip DNS 导致解析异常。若设备被强制重启导致未恢复，可在系统「网络和互联网 → 私人 DNS」中手动改回。
+- **其它 VPN 并存**：与其它 VPN（包括系统自带 VPN）同时开启可能互相抢占路由，建议只保留一个；双卡、电视盒与热点共享需要真机验证。
+- **管理器冻结 / 省电策略**：内核进程会脱离管理器 cgroup 运行，管理器切后台或被回收不会中断代理；部分 ROM 的激进省电/后台冻结仍可能杀掉进程，建议为管理器与 MihomoProxy Evolution 关闭电池优化。排查时用 `mproxy status` 与 `/data/adb/mproxy/logs/`。
+- **日志位置**：`/data/adb/mproxy/logs/`（`backend.log`、`core.log`、`service.log`），面板「设置 → 诊断」可导出脱敏信息；`service.log` 超过 1 MiB 自动截断并保留最后 2000 行。
+- **包体积**：四架构 zip 约 131 MB，超过 KernelSU Modules 的 100 MB 收录上限，因此暂未提交到 KernelSU Modules，仍可通过 GitHub Releases 安装。
 
 ## 从源码构建
 

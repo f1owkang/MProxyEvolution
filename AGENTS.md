@@ -179,10 +179,15 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 
 ### 内核生命周期与更新
 
-- `serve`：建目录、加载/生成配置、写 `state/backend.pid`、按 `auto-start` 异步启动内核（最多等网络 8s）；
-  收到 SIGINT/SIGTERM 退出但内核保持运行。
+- `serve`：建目录、加载/生成配置、写 `state/backend.pid`、按 `auto-start` 异步启动内核（Android 最多等默认
+  路由 120s、带退避重试 3 次；桌面开发 8s）；收到 SIGINT/SIGTERM 退出但内核保持运行。
 - 启动内核：先清理同路径残留进程（仅 Android，按 `/proc/<pid>/cmdline` 匹配）；检测到外部 controller
   可达则只接管状态/代理，不停止外部内核；等待 controller `/version` 最多 15s，失败带日志尾部并清理进程。
+  - 启动成功与后端自身启动时尽力移入根 cgroup（cgroup v2 `/sys/fs/cgroup/cgroup.procs`），避免管理器
+    切后台/被回收时连带杀掉进程；不支持时只告警，不得阻断启动。
+  - 内核异常退出且 `auto-start=true` 时看门狗按指数退避自动重启（最多 5 次）；`Stop`/`Update` 必须置
+    “主动停止”标记，避免与用户操作冲突。重启次数与上次退出通过 `/api/status` 的 `restarts`/`lastExit`
+    暴露，退出详情写 `state/last_exit`，启动成功后清除。
 - `boot`：先探测 `/healthz`，未启动则 detached 拉起 `serve`，20s 内轮询，最后输出带 token 的面板地址；
   `status` 未运行返回非 0，`stop` 先内核后后端，`toggle` 切换。
 - TUN 启动前保持 `tun.auto-detect-interface` 不变（默认 true，由 mihomo 自行探测出口网卡）；仅当用户显式
@@ -201,6 +206,8 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   （后端启动时也会尽力重复准备）。
 - 默认 TUN 开启、`stack: mixed`、`auto-route: true`、`dns-hijack: any:53`、MTU 1500；DNS 为 fake-ip
   （`198.18.0.1/16`），监听 `0.0.0.0:1053`，nameserver 为 DoH。TProxy/redirect 在 v0.1 拒绝，不要顺手启用。
+- TUN 启动前临时保存并关闭系统 Private DNS（`state/private_dns`，0600，已存在不覆盖），停止或自愈失败时
+  恢复原值；不要覆盖用户原始模式，也不要让它长期停留在 off。
 - 端口默认：后端 9091、controller 9090、mixed 7890、socks 7891、http 0、DNS 1053；改端口要同步默认模板、
   README 与面板默认值，并注意 `CriticalChanges` 会触发内核重启。
 
@@ -224,9 +231,11 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 ## CI 与发版
 
 - `ci.yml`：push 到 `main`（忽略 `**/*.md`、`THIRD_PARTY_NOTICES.txt`）、PR、手动。`test` 跑 `sh -n`、
-  `gofmt -l backend`、`go vet`、`go test`；`metadata` 校验 JSON/YAML 与 `module.prop`/`module.yaml`/
-  `module.json`/`update.json`/`.release-baseline` 一致性；`build` 完整构建（版本 `0.1.0-ci.<sha7>`）并上传
-  artifact，不发布。
+  `gofmt -l backend`、`go vet`、`go test -race ./... -count=1` 与 `bash tests/scripts_test.sh`（安装器/打包
+  回归断言）；`metadata` 校验 JSON/YAML 与 `module.prop`/`module.yaml`/`module.json`/`update.json`/
+  `.release-baseline` 一致性；`lint` 跑 shellcheck、yamllint、actionlint；`panel` 按 `panel.lock` 检出后跑
+  `pnpm run lint` 与 `pnpm run type-check`；`build`（needs test/metadata/lint/panel）完整构建
+  （版本 `0.1.0-ci.<sha7>`）并上传 artifact，不发布。
 - `release.yml`：push `v*` tag → tag 与 `module.prop` 版本一致性 → 发布前测试 → `build.sh --version <tag 去掉 v>`
   → zip 预检 → 生成 `changelog.txt` → draft Release → 发布（检查 release immutability，仅告警）→ 回写
   `update.json` 与 `.release-baseline` 到 `main`。

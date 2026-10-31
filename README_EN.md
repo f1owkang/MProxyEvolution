@@ -12,7 +12,7 @@
 
 English | [简体中文](README.md)
 
-[Features](#features) | [Screenshots](#screenshots) | [Installation](#installation) | [How it works](#how-it-works) | [FAQ](#faq) | [Build from source](#build-from-source) | [Repository layout](#repository-layout) | [Upstream sync](#upstream-sync) | [Disclaimer](#disclaimer) | [License](#license)
+[Features](#features) | [Screenshots](#screenshots) | [Installation](#installation) | [How it works](#how-it-works) | [FAQ](#faq) | [Compatibility](#compatibility) | [Known limitations](#known-limitations) | [Build from source](#build-from-source) | [Repository layout](#repository-layout) | [Upstream sync](#upstream-sync) | [Disclaimer](#disclaimer) | [License](#license)
 
 </div>
 
@@ -116,6 +116,29 @@ No. The installer never overwrites an existing `/data/adb/mproxy/config.yaml`; u
 
 Android 8.0+, KernelSU / KernelSU Next / Magisk 26+, and arm64-v8a / armeabi-v7a / x86 / x86_64. TUN mode needs kernel support for `/dev/net/tun` (missing on some stock kernels).
 </details>
+
+## Compatibility
+
+| Environment | Status | Notes |
+| :-- | :-- | :-- |
+| KernelSU / KernelSU Next | ✅ Supported (recommended) | Built-in WebUI entry; reboot, then tap "Open" |
+| Magisk 26+ | ✅ Supported | No built-in WebUI; after reboot run `su -c /data/adb/mproxy/bin/mproxy boot` |
+| APatch | ⚠️ Best-effort | Magisk module format works; the installer detects `/data/adb/apd` and prints a note; not covered by CI or device regression |
+| Android 8.0+, arm64-v8a / armeabi-v7a / x86 / x86_64 | ✅ Supported | The kernel must provide `/dev/net/tun` (missing on some stock kernels) |
+
+- The module must be installed by a **Magisk / KernelSU / KernelSU Next / APatch manager** (or an equivalent module installer entry). When `BOOTMODE=false/0` is detected the installer refuses to continue, so it cannot write the module directory from a non-module environment.
+- Scripted installs (e.g. `ksud module install`) can set `MPROXY_HEADLESS=1` to skip the volume-key selection and install automatically.
+- APatch support is best-effort: the scripts run as a Magisk-format module, but there is no full device regression yet. When reporting issues, attach the panel's Settings → Diagnostics export and the `/data/adb/mproxy/logs/` logs.
+
+## Known limitations
+
+- **TUN only**: `proxy-mode` accepts only `tun` and `mixed`; v0.1 does not provide tproxy / redirect. Transparent proxying always goes through TUN.
+- **Hotspot / USB tethering downstream clients are not guaranteed**: mihomo's `auto-route` covers local-device traffic; whether tethered clients are proxied depends on the ROM and network stack and is not guaranteed.
+- **Private DNS (DoT)**: while TUN is active the module saves and turns off the system Private DNS mode (`private_dns_mode`), and restores the previous value on stop (the backend restores it on a best-effort basis after abnormal exits), so DoT cannot bypass fake-ip DNS. If a forced reboot leaves it disabled, re-enable it in Settings → Network & internet → Private DNS.
+- **Other VPNs**: running another VPN at the same time (including the system VPN) may fight over routes; keep only one active. Dual-SIM, TV boxes and hotspot sharing should be validated on the real device.
+- **Manager freezing / battery savers**: the kernel process runs outside the manager's cgroup, so switching the manager to the background or letting it be reaped does not stop proxying. Aggressive ROM battery savers or background freezers may still kill it; disable battery optimisation for the manager and MihomoProxy Evolution. Use `mproxy status` and `/data/adb/mproxy/logs/` when troubleshooting.
+- **Log locations**: `/data/adb/mproxy/logs/` (`backend.log`, `core.log`, `service.log`); the panel's Settings → Diagnostics exports redacted diagnostics. `service.log` is truncated to the last 2000 lines once it exceeds 1 MiB.
+- **Package size**: the four-architecture zip is about 131 MB, above KernelSU Modules' 100 MB limit, so it is not submitted there yet; installs still come from GitHub Releases.
 
 ## Build from source
 
