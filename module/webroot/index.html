@@ -22,7 +22,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px 18px calc(56px + env(safe-area-inset-bottom));
+    padding: calc(24px + env(safe-area-inset-top, 0px)) 18px calc(56px + env(safe-area-inset-bottom, 0px));
     -webkit-font-smoothing: antialiased;
   }
   .wrap {
