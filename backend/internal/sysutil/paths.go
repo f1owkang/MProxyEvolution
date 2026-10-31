@@ -94,6 +94,12 @@ func (p Paths) CorePIDPath() string { return filepath.Join(p.StateDir(), "core.p
 // BackendPIDPath 返回后端 pid 文件路径。
 func (p Paths) BackendPIDPath() string { return filepath.Join(p.StateDir(), "backend.pid") }
 
+// LastExitPath 返回上次内核退出状态文件路径（诊断/看门狗使用）。
+func (p Paths) LastExitPath() string { return filepath.Join(p.StateDir(), "last_exit") }
+
+// PrivateDNSStatePath 返回临时关闭系统 Private DNS 时保存原模式的状态文件路径。
+func (p Paths) PrivateDNSStatePath() string { return filepath.Join(p.StateDir(), "private_dns") }
+
 // ProvidersDir 返回订阅 provider 缓存目录。
 func (p Paths) ProvidersDir() string { return filepath.Join(p.DataDir, "providers") }
 

@@ -18,6 +18,7 @@ type SystemInfo struct {
 	Android   string  `json:"android"`
 	Model     string  `json:"model"`
 	Kernel    string  `json:"kernel"`
+	Manager   string  `json:"manager"`
 	MemTotal  int64   `json:"memTotal"`
 	MemFree   int64   `json:"memFree"`
 	Load1     float64 `json:"load1"`
@@ -31,6 +32,7 @@ func CollectSystemInfo() SystemInfo {
 		ABI:     ABI(),
 		Android: GetProp("ro.build.version.release"),
 		Model:   GetProp("ro.product.model"),
+		Manager: DetectManager(),
 	}
 	if info.Model == "" {
 		info.Model = GetProp("ro.product.marketname")
@@ -99,13 +101,17 @@ func GetProp(name string) string {
 	return strings.TrimSpace(out)
 }
 
+// ipBinary 返回可用的 ip 命令路径（Android 优先 /system/bin/ip）。
+func ipBinary() string {
+	if _, err := os.Stat("/system/bin/ip"); err == nil {
+		return "/system/bin/ip"
+	}
+	return "ip"
+}
+
 // HasDefaultRoute 检查当前是否已有默认路由（TUN auto-route 需要）。
 func HasDefaultRoute() bool {
-	ip := "ip"
-	if _, err := os.Stat("/system/bin/ip"); err == nil {
-		ip = "/system/bin/ip"
-	}
-	out, err := runCommand(context.Background(), 3*time.Second, ip, "route")
+	out, err := runCommand(context.Background(), 3*time.Second, ipBinary(), "route")
 	if err != nil {
 		return false
 	}
@@ -115,6 +121,23 @@ func HasDefaultRoute() bool {
 		}
 	}
 	return false
+}
+
+// TUNDeviceExists 检查指定网卡是否仍存在（诊断 TUN 残留时使用）。
+// 只在 Android 上检测，其它平台返回 false，避免把桌面网卡误判成 TUN。
+func TUNDeviceExists(name string) bool {
+	if !IsAndroid() {
+		return false
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	out, err := runCommand(context.Background(), 2*time.Second, ipBinary(), "link", "show", name)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(out) != ""
 }
 
 // WaitForNetwork 等待默认路由出现，最多 timeout；Android 开机后网络可能晚于
@@ -130,6 +153,51 @@ func WaitForNetwork(timeout time.Duration) bool {
 	return HasDefaultRoute()
 }
 
+// WaitForNetworkBackoff 与 WaitForNetwork 语义相同，却按 1s→5s 逐步拉长探测间隔，
+// 避免开机/飞行模式恢复期间每秒 fork 一次 ip 命令。用于 runServe 的 120s 开机等待。
+func WaitForNetworkBackoff(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	delay := time.Second
+	for {
+		if HasDefaultRoute() {
+			return true
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		if remaining < delay {
+			delay = remaining
+		}
+		time.Sleep(delay)
+		if delay < 5*time.Second {
+			delay += time.Second
+			if delay > 5*time.Second {
+				delay = 5 * time.Second
+			}
+		}
+	}
+}
+
+// DetectManager 识别当前 root 管理器：优先 KernelSU，其次 APatch，最后 Magisk。
+// 三者都通过各自在 /data/adb 下的特征目录判断，未识别时返回 "unknown"。
+func DetectManager() string {
+	candidates := []struct {
+		path string
+		name string
+	}{
+		{"/data/adb/ksu", "kernelsu"},
+		{"/data/adb/apd", "apatch"},
+		{"/data/adb/magisk", "magisk"},
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c.path); err == nil {
+			return c.name
+		}
+	}
+	return "unknown"
+}
+
 // runCommand 带超时执行命令并返回 stdout+stderr。
 func runCommand(ctx context.Context, timeout time.Duration, name string, args ...string) (string, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -141,11 +209,7 @@ func runCommand(ctx context.Context, timeout time.Duration, name string, args ..
 // DefaultInterface 读取当前默认路由的网卡名（Android 策略路由/主表都可）。
 func DefaultInterface() string {
 	proc, _ := os.ReadFile("/proc/net/route")
-	ip := "ip"
-	if _, err := os.Stat("/system/bin/ip"); err == nil {
-		ip = "/system/bin/ip"
-	}
-	out, _ := runCommand(context.Background(), 2*time.Second, ip, "route")
+	out, _ := runCommand(context.Background(), 2*time.Second, ipBinary(), "route")
 	return parseDefaultInterface(string(proc), out)
 }
 

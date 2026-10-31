@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -106,6 +107,16 @@ func runServe(_ []string) {
 	// 只删除自己写下的 pid 文件：若 pid 已被别的进程复用，不要误删。
 	defer sysutil.RemovePIDIfMatch(paths.BackendPIDPath(), os.Getpid())
 
+	// 后端自身也脱离 root 管理器的 cgroup：否则管理器切后台/清理时可能连带杀掉后端，
+	// 代理随之失去自愈与面板。平台不支持时静默跳过，失败只告警。
+	if err := sysutil.MoveProcessToRootCgroup(os.Getpid()); err != nil {
+		if !errors.Is(err, sysutil.ErrNotSupported) {
+			logger.Printf("警告: 后端进程移入根 cgroup 失败（继续运行）: %v", err)
+		}
+	} else {
+		logger.Printf("后端进程已移入根 cgroup（pid=%d）", os.Getpid())
+	}
+
 	srv, err := server.New(server.Options{
 		Paths:     paths,
 		Token:     token,
@@ -123,19 +134,11 @@ func runServe(_ []string) {
 	}
 	logger.Printf("MProxyEvolution 后端 %s 启动，数据目录 %s", version.Version, paths.DataDir)
 
-	// 按 auto-start 异步启动内核
+	// 按 auto-start 异步启动内核：开机时网络可能晚于服务就绪（慢开机/飞行模式），
+	// 先等默认路由最长 120s，再带退避重试启动，避免永久停留在“已安装未运行”。
+	// 整个流程在 goroutine 中执行，绝不阻塞后端 HTTP 服务。
 	if doc, derr := cfg.Doc(); derr == nil && doc.Settings().AutoStart && mgr.Installed() && !mgr.Running() {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			// 快速探测网络即可：等太久会让面板长时间显示 core_not_running。
-			if !sysutil.WaitForNetwork(8 * time.Second) {
-				logger.Printf("等待默认网络路由超时，先启动内核；TUN 失败后可在联网后重启内核")
-			}
-			if err := mgr.Start(ctx); err != nil {
-				logger.Printf("自动启动内核失败: %v", err)
-			}
-		}()
+		go autoStartCore(mgr, logger)
 	} else if derr == nil && !mgr.Installed() {
 		logger.Printf("未安装 mihomo 内核，可稍后在面板中安装")
 	}
@@ -150,6 +153,64 @@ func runServe(_ []string) {
 
 	if err := srv.ListenAndServe(); err != nil {
 		fatalf("后端运行失败: %v", err)
+	}
+}
+
+// bootNetworkTimeout 是开机后等待默认路由的最长时间（Android）。慢开机/飞行模式
+// 下网络可能远晚于 sys.boot_completed 就绪，短等待会让内核永久停在“已安装未运行”。
+const bootNetworkTimeout = 120 * time.Second
+
+// devNetworkTimeout 是非 Android 开发环境的网络探测时长（桌面没有 Android 策略路由，
+// 长时间等待只会拖慢本地联调）。
+const devNetworkTimeout = 8 * time.Second
+
+// autoStartBudget 是自动启动内核的总预算（等待网络 + 重试）。
+const autoStartBudget = 5 * time.Minute
+
+// autoStartCore 等待网络后带退避重试启动内核，运行在独立 goroutine，不阻塞 serve。
+func autoStartCore(mgr *core.Manager, logger *log.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), autoStartBudget)
+	defer cancel()
+
+	networkTimeout := devNetworkTimeout
+	if sysutil.IsAndroid() {
+		networkTimeout = bootNetworkTimeout
+	}
+	if !sysutil.WaitForNetworkBackoff(networkTimeout) {
+		logger.Printf("等待默认网络路由超时（%s），仍尝试启动内核；联网后可手动重启内核", networkTimeout)
+	}
+
+	// 最多 3 次尝试，失败后按 2s、5s 退避；ErrAlreadyRunning/ErrNotInstalled 不重试。
+	const maxAttempts = 3
+	backoffs := []time.Duration{2 * time.Second, 5 * time.Second}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := mgr.Start(ctx)
+		if err == nil {
+			if attempt > 1 {
+				logger.Printf("自动启动内核成功（第 %d 次尝试）", attempt)
+			}
+			return
+		}
+		if errors.Is(err, core.ErrAlreadyRunning) {
+			logger.Printf("内核已在运行，跳过自动启动: %v", err)
+			return
+		}
+		if errors.Is(err, core.ErrNotInstalled) {
+			logger.Printf("自动启动内核失败（未安装内核）: %v", err)
+			return
+		}
+		if attempt >= maxAttempts {
+			logger.Printf("自动启动内核失败（已尝试 %d 次），可在面板中手动启动: %v", maxAttempts, err)
+			return
+		}
+		delay := backoffs[attempt-1]
+		logger.Printf("自动启动内核失败（第 %d/%d 次），%s 后重试: %v", attempt, maxAttempts, delay, err)
+		select {
+		case <-ctx.Done():
+			logger.Printf("自动启动内核超时，放弃重试: %v", ctx.Err())
+			return
+		case <-time.After(delay):
+		}
 	}
 }
 

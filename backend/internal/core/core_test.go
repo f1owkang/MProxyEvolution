@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -363,5 +364,221 @@ func TestStartSerializedByStartMu(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("释放 startMu 后 Start 未返回")
+	}
+}
+
+func TestRestartBackoff(t *testing.T) {
+	want := []time.Duration{
+		500 * time.Millisecond,
+		time.Second,
+		2 * time.Second,
+		4 * time.Second,
+		8 * time.Second,
+	}
+	for i, w := range want {
+		if got := restartBackoff(i); got != w {
+			t.Fatalf("restartBackoff(%d) = %s, want %s", i, got, w)
+		}
+	}
+	// 上限 30s，且负数按第一次处理。
+	if got := restartBackoff(10); got != 30*time.Second {
+		t.Fatalf("退避上限应为 30s: %s", got)
+	}
+	if got := restartBackoff(-5); got != 500*time.Millisecond {
+		t.Fatalf("负数应按第一次退避: %s", got)
+	}
+}
+
+func TestAfterExitSkipsRestartOnIntentionalStop(t *testing.T) {
+	m, paths := newTestManager(t)
+	m.mu.Lock()
+	m.pid = 4242
+	m.startedAt = time.Now()
+	m.intentionalStop = true
+	m.mu.Unlock()
+
+	m.afterExit(4242, errors.New("boom"))
+
+	info, err := sysutil.ReadLastExit(paths.LastExitPath())
+	if err != nil {
+		t.Fatalf("应写入上次退出状态: %v", err)
+	}
+	if info.PID != 4242 || !info.Intentional || !strings.Contains(info.Err, "boom") {
+		t.Fatalf("上次退出状态错误: %+v", info)
+	}
+	m.mu.Lock()
+	restarts, pid := m.restarts, m.pid
+	m.mu.Unlock()
+	if restarts != 0 || pid != 0 {
+		t.Fatalf("主动停止后不应自愈: restarts=%d pid=%d", restarts, pid)
+	}
+	m.restartMu.Lock()
+	restarting := m.restarting
+	m.restartMu.Unlock()
+	if restarting {
+		t.Fatal("主动停止后不应启动看门狗 goroutine")
+	}
+}
+
+func TestAfterExitSkipsRestartWhenAutoStartDisabled(t *testing.T) {
+	m, _ := newTestManager(t)
+	off := false
+	doc, err := m.cfg.Doc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ApplySettings(config.SettingsPatch{AutoStart: &off}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.cfg.Save(doc); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	m.pid = 5150
+	m.mu.Unlock()
+
+	m.afterExit(5150, errors.New("boom"))
+
+	m.restartMu.Lock()
+	restarting := m.restarting
+	m.restartMu.Unlock()
+	if restarting {
+		t.Fatal("auto-start 关闭时不应启动看门狗")
+	}
+	m.mu.Lock()
+	restarts := m.restarts
+	m.mu.Unlock()
+	if restarts != 0 {
+		t.Fatalf("auto-start 关闭时不应累计重启次数: %d", restarts)
+	}
+}
+
+func TestAfterExitIgnoresUntrackedProcess(t *testing.T) {
+	m, paths := newTestManager(t)
+	m.mu.Lock()
+	m.pid = 777
+	m.mu.Unlock()
+
+	// pid 不匹配（旧内核已退出、状态被新内核接管）：不应写 last_exit，也不自愈。
+	m.afterExit(888, errors.New("old exit"))
+
+	if _, err := os.Stat(paths.LastExitPath()); !os.IsNotExist(err) {
+		t.Fatalf("未接管的旧进程退出不应写 last_exit: %v", err)
+	}
+	m.mu.Lock()
+	restarts := m.restarts
+	m.mu.Unlock()
+	if restarts != 0 {
+		t.Fatalf("不应累计重启次数: %d", restarts)
+	}
+}
+
+// installFakeKernel 把一个“启动即失败”的可执行文件伪装成 mihomo 内核：
+// 用当前测试二进制充当内核，参数不合法会立即退出，让 Start 以“进程提前退出”
+// 失败（而不是 ErrNotInstalled），从而覆盖看门狗的重试/上限逻辑。
+func installFakeKernel(t *testing.T, paths sysutil.Paths) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("获取测试二进制路径失败: %v", err)
+	}
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatalf("读取测试二进制失败: %v", err)
+	}
+	target := paths.InstallCorePath()
+	if err := os.WriteFile(target, data, 0o755); err != nil {
+		t.Fatalf("写入假内核失败: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(target, 0o755); err != nil {
+			t.Fatalf("设置假内核可执行权限失败: %v", err)
+		}
+	}
+}
+
+func TestAutoRestartExhausted(t *testing.T) {
+	m, paths := newTestManager(t)
+	installFakeKernel(t, paths)
+	old := restartBackoffFn
+	restartBackoffFn = func(int) time.Duration { return time.Millisecond }
+	defer func() { restartBackoffFn = old }()
+
+	m.mu.Lock()
+	m.pid = 6001
+	m.mu.Unlock()
+	// 假内核启动后立即退出：每次自动重启都会以“进程提前退出”失败，便于验证上限。
+	m.afterExit(6001, errors.New("signal: killed"))
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		m.mu.Lock()
+		restarts := m.restarts
+		m.mu.Unlock()
+		m.restartMu.Lock()
+		restarting := m.restarting
+		m.restartMu.Unlock()
+		if !restarting && restarts >= maxAutoRestarts {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("自动重启未按预期结束: restarts=%d restarting=%v", restarts, restarting)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	m.mu.Lock()
+	restarts := m.restarts
+	m.mu.Unlock()
+	if restarts != maxAutoRestarts {
+		t.Fatalf("重启次数应到达上限 %d，实际 %d", maxAutoRestarts, restarts)
+	}
+	st := m.Status()
+	if st.Restarts != maxAutoRestarts {
+		t.Fatalf("Status.Restarts = %d, want %d", st.Restarts, maxAutoRestarts)
+	}
+	if st.LastExit == "" {
+		t.Fatal("Status.LastExit 应包含上次退出信息")
+	}
+}
+
+func TestStartResetsRestartState(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.mu.Lock()
+	m.restarts = 3
+	m.intentionalStop = true
+	m.mu.Unlock()
+	if err := m.Start(context.Background()); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("无内核时 Start 应返回 ErrNotInstalled: %v", err)
+	}
+	m.mu.Lock()
+	restarts, intentional := m.restarts, m.intentionalStop
+	m.mu.Unlock()
+	if restarts != 0 || intentional {
+		t.Fatalf("手动 Start 应重置自愈状态: restarts=%d intentional=%v", restarts, intentional)
+	}
+}
+
+func TestClearLastExit(t *testing.T) {
+	m, paths := newTestManager(t)
+	if err := sysutil.WriteLastExit(paths.LastExitPath(), sysutil.LastExitInfo{
+		Time: time.Now(),
+		PID:  1234,
+		Err:  "boom",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	m.lastExitAt = time.Now()
+	m.lastExitReason = "boom"
+	m.mu.Unlock()
+	m.clearLastExit()
+	if _, err := os.Stat(paths.LastExitPath()); !os.IsNotExist(err) {
+		t.Fatalf("启动成功应清除 last_exit: %v", err)
+	}
+	m.mu.Lock()
+	cleared := m.lastExitAt.IsZero()
+	m.mu.Unlock()
+	if !cleared {
+		t.Fatal("应清除内存中的上次退出信息")
 	}
 }

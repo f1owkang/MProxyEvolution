@@ -47,6 +47,8 @@ type Status struct {
 	Version    string           `json:"version"`
 	StartedAt  string           `json:"startedAt"`
 	UptimeSec  int64            `json:"uptimeSec"`
+	Restarts   int              `json:"restarts"`
+	LastExit   string           `json:"lastExit,omitempty"`
 	Controller ControllerStatus `json:"controller"`
 }
 
@@ -65,8 +67,43 @@ type Manager struct {
 	startedAt   time.Time
 	lastExitErr error
 
+	// 自愈（watchdog）状态，均由 mu 保护：
+	// intentionalStop 标记“主动停止/重启中”，用于区分崩溃与用户操作；
+	// restarts 是当前连续自动重启次数（手动 Start 时清零）；
+	// lastExit* 保存最近一次内核退出信息（写 state/last_exit 并在 Status 暴露）。
+	intentionalStop bool
+	restarts        int
+	lastExitAt      time.Time
+	lastExitPID     int
+	lastExitReason  string
+	// starting 表示 start() 已拉起进程但尚未确认控制器就绪；此期间的进程退出
+	// 由 start() 自己处理（返回错误或由看门狗重试），afterExit 不应再触发一次自愈。
+	starting bool
+
+	// restartMu/restarting 保证同一时间只有一个自动重启 goroutine，避免重启风暴。
+	restartMu  sync.Mutex
+	restarting bool
+
 	versionCache string
 	external     bool
+}
+
+// maxAutoRestarts 是内核非主动退出后的最大自动重启次数。
+const maxAutoRestarts = 5
+
+// restartBackoffFn 计算第 n 次（从 0 开始）自动重启前的等待时间，测试可替换。
+var restartBackoffFn = restartBackoff
+
+// restartBackoff 返回指数退避等待时间：0.5s、1s、2s、4s、8s……上限 30s。
+func restartBackoff(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	d := 500 * time.Millisecond << uint(attempt)
+	if d > 30*time.Second || d <= 0 {
+		d = 30 * time.Second
+	}
+	return d
 }
 
 // NewManager 创建内核管理器，并接管已有 pid 文件。
@@ -76,7 +113,25 @@ func NewManager(paths sysutil.Paths, cfg *config.Manager, logger *log.Logger) *M
 	}
 	m := &Manager{paths: paths, cfg: cfg, logger: logger}
 	m.adoptExisting()
+	m.loadLastExit()
 	return m
+}
+
+// loadLastExit 在后端重启后恢复上次内核退出信息（state/last_exit），
+// 供 /api/status 与诊断页展示；内核正在运行（已接管）时视为过期，不加载。
+func (m *Manager) loadLastExit() {
+	if m.PID() > 0 {
+		return
+	}
+	info, err := sysutil.ReadLastExit(m.paths.LastExitPath())
+	if err != nil || info.Time.IsZero() {
+		return
+	}
+	m.mu.Lock()
+	m.lastExitAt = info.Time
+	m.lastExitPID = info.PID
+	m.lastExitReason = info.Err
+	m.mu.Unlock()
 }
 
 // coreProcessNeedle 是内核命令行必须包含的片段，用于 pid 身份校验。
@@ -250,7 +305,20 @@ func (m *Manager) Running() bool {
 }
 
 // Start 启动 mihomo 内核并等待控制器可用（最多 15s）。
+// 这是用户/接口触发的启动：会清除“主动停止”标记并重置自动重启计数，
+// 与看门狗内部使用的 start 区分开。
 func (m *Manager) Start(ctx context.Context) error {
+	m.mu.Lock()
+	m.intentionalStop = false
+	m.restarts = 0
+	m.mu.Unlock()
+	return m.start(ctx, false)
+}
+
+// start 是内部启动流程；不重置自动重启计数，供看门狗复用。
+// retryPending 为 true 表示调用方（看门狗）还会继续重试：启动失败时保留 Private DNS
+// 的关闭状态；false 表示一次性启动，失败即恢复系统 DNS 设置。
+func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	// startMu 串行化整个“检查 → 启动 → 等待控制器”窗口：面板按钮、自动启动、
 	// 更新后重启等并发调用不会重复拉起内核。窗口内不长期持有 m.mu。
 	m.startMu.Lock()
@@ -289,6 +357,21 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := m.paths.EnsureDirs(); err != nil {
 		return err
 	}
+	// TUN 需要接管全部 DNS 流量：先临时关闭系统 Private DNS（DoT），否则 853 端口
+	// 的加密 DNS 会绕过 mihomo fake-ip。失败只记录日志，绝不影响启动。
+	dnsChanged := false
+	if sysutil.IsAndroid() && doc.GetBool(false, "tun", "enable") {
+		dnsChanged = m.disablePrivateDNS()
+	}
+	// 只有“内核正在运行”或“看门狗还会重试”时保留 Private DNS 关闭状态；
+	// 其它失败路径（手动启动失败/更新失败）恢复系统设置，避免用户 DNS 被留在 off。
+	started := false
+	defer func() {
+		if started || retryPending || !dnsChanged {
+			return
+		}
+		m.restorePrivateDNS()
+	}()
 	prepareAndroidNetwork(m.logger)
 	logFile, err := m.openCoreLog()
 	if err != nil {
@@ -310,7 +393,11 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.pid = pid
 	m.startedAt = time.Now()
 	m.lastExitErr = nil
+	m.starting = true
 	m.mu.Unlock()
+	// 把内核移出管理器的 cgroup，避免 root 管理器切后台/清理时连带杀掉内核。
+	// 平台不支持或 cgroup v1 只记录日志，不阻断启动。
+	m.moveToRootCgroup(pid)
 	if err := sysutil.WritePIDFile(m.paths.CorePIDPath(), pid); err != nil {
 		m.logger.Printf("写入内核 pid 文件失败: %v", err)
 	}
@@ -319,12 +406,21 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	if err := m.waitController(ctx, 15*time.Second); err != nil {
 		tail := strings.Join(m.LogTail(30), "\n")
-		_ = m.Stop()
+		// 只做低层清理，不标记“主动停止”，否则看门狗会误以为用户要停止而放弃重启。
+		_ = m.stopProcess()
+		m.mu.Lock()
+		m.starting = false
+		m.mu.Unlock()
 		if tail == "" {
 			tail = "（暂无日志）"
 		}
 		return fmt.Errorf("内核启动失败：%v\n最近日志：\n%s", err, tail)
 	}
+	started = true
+	m.mu.Lock()
+	m.starting = false
+	m.mu.Unlock()
+	m.clearLastExit()
 	m.logger.Printf("mihomo 控制器已就绪（pid=%d）", pid)
 	return nil
 }
@@ -386,21 +482,220 @@ func (m *Manager) wait(cmd *exec.Cmd, logFile *os.File) {
 	if logFile != nil {
 		_ = logFile.Close()
 	}
-	pid := cmd.Process.Pid
+	m.afterExit(cmd.Process.Pid, err)
+}
+
+// afterExit 处理内核进程退出：清理状态、记录上次退出信息，并按配置决定是否自愈。
+// 抽成独立方法便于在测试中直接模拟“内核异常退出”，无需真实子进程。
+func (m *Manager) afterExit(pid int, err error) {
+	now := time.Now()
 	m.mu.Lock()
-	if m.pid == pid {
+	tracked := m.pid == pid
+	intentional := m.intentionalStop
+	starting := m.starting
+	if tracked {
 		m.pid = 0
 		m.startedAt = time.Time{}
 		m.lastExitErr = err
+		m.lastExitAt = now
+		m.lastExitPID = pid
+		m.lastExitReason = exitReason(err)
 	}
 	m.mu.Unlock()
+	if !tracked {
+		// 新内核/新状态已接管（重启或更新期间旧进程稍后退出）：只记录日志，
+		// 不写 last_exit、不触发自愈，避免覆盖当前内核的状态。
+		m.logger.Printf("旧 mihomo 内核已退出（pid=%d，当前状态已被接管）", pid)
+		return
+	}
 	// 比较后删除：只删除内容仍记录本进程 pid 的 pid 文件，避免误删新内核的 pid 文件。
 	sysutil.RemovePIDIfMatch(m.paths.CorePIDPath(), pid)
+	m.writeLastExit(now, pid, err, intentional)
 	if err != nil {
 		m.logger.Printf("mihomo 内核已退出: %v", err)
 	} else {
 		m.logger.Printf("mihomo 内核已退出")
 	}
+	if intentional {
+		// 主动停止：Stop() 负责恢复 Private DNS，看门狗不介入。
+		return
+	}
+	if starting {
+		// 启动过程中的提前退出由 start() 自己处理（返回错误或看门狗继续重试），
+		// 这里再触发一次自愈会与调用方形成重启风暴。
+		return
+	}
+	if m.autoStartEnabled() {
+		m.maybeAutoRestart()
+		return
+	}
+	// 自动重启已关闭（或配置不可读）：恢复系统 Private DNS，避免被长期留在 off。
+	m.restorePrivateDNS()
+}
+
+// exitReason 返回写入状态文件的退出原因文本（正常退出为空串）。
+func exitReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// writeLastExit 持久化上次退出信息；失败只告警，不影响自愈流程。
+func (m *Manager) writeLastExit(at time.Time, pid int, err error, intentional bool) {
+	info := sysutil.LastExitInfo{
+		Time:        at,
+		PID:         pid,
+		Err:         exitReason(err),
+		Intentional: intentional,
+	}
+	if werr := sysutil.WriteLastExit(m.paths.LastExitPath(), info); werr != nil {
+		m.logger.Printf("写入上次内核退出状态失败: %v", werr)
+	}
+}
+
+// clearLastExit 在启动成功后清除“上次异常退出”记录，避免诊断页持续提示旧故障。
+func (m *Manager) clearLastExit() {
+	sysutil.RemoveLastExit(m.paths.LastExitPath())
+	m.mu.Lock()
+	m.lastExitAt = time.Time{}
+	m.lastExitPID = 0
+	m.lastExitReason = ""
+	m.mu.Unlock()
+}
+
+// autoStartEnabled 读取 x-mproxy.auto-start；配置不可读时按 false 处理（不自愈）。
+func (m *Manager) autoStartEnabled() bool {
+	doc, err := m.cfg.Doc()
+	if err != nil {
+		return false
+	}
+	return doc.Settings().AutoStart
+}
+
+// maybeAutoRestart 在非主动退出后启动看门狗 goroutine；同一时间只允许一个。
+func (m *Manager) maybeAutoRestart() {
+	m.restartMu.Lock()
+	if m.restarting {
+		m.restartMu.Unlock()
+		m.logger.Printf("内核自动重启已在进行中，跳过本次触发")
+		return
+	}
+	m.restarting = true
+	m.restartMu.Unlock()
+	go m.restartLoop()
+}
+
+// restartLoop 按指数退避自动重启内核，最多 maxAutoRestarts 次；每次尝试都检查
+// “主动停止”标记，用户中途 Stop/Update 时立即放弃，避免看门狗与用户操作打架。
+func (m *Manager) restartLoop() {
+	defer func() {
+		m.restartMu.Lock()
+		m.restarting = false
+		m.restartMu.Unlock()
+	}()
+	for {
+		m.mu.Lock()
+		stopped := m.intentionalStop
+		attempt := m.restarts
+		m.mu.Unlock()
+		if stopped {
+			m.logger.Printf("内核已主动停止，取消自动重启")
+			return
+		}
+		if attempt >= maxAutoRestarts {
+			m.logger.Printf("内核自动重启已达上限（%d 次），停止自愈；请检查配置或手动启动", maxAutoRestarts)
+			m.restorePrivateDNS()
+			return
+		}
+		delay := restartBackoffFn(attempt)
+		if !m.sleepRestart(delay) {
+			m.logger.Printf("内核已主动停止，取消自动重启")
+			return
+		}
+		m.mu.Lock()
+		if m.intentionalStop {
+			m.mu.Unlock()
+			m.logger.Printf("内核已主动停止，取消自动重启")
+			return
+		}
+		m.restarts++
+		current := m.restarts
+		m.mu.Unlock()
+		m.logger.Printf("检测到内核异常退出，%s 后进行第 %d/%d 次自动重启", delay, current, maxAutoRestarts)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		err := m.start(ctx, true)
+		cancel()
+		if err == nil {
+			m.logger.Printf("内核自动重启成功（pid=%d，累计重启 %d 次）", m.PID(), current)
+			return
+		}
+		if errors.Is(err, ErrAlreadyRunning) {
+			m.logger.Printf("内核已在运行（可能由其它途径启动），停止自动重启")
+			m.restorePrivateDNS()
+			return
+		}
+		if errors.Is(err, ErrNotInstalled) {
+			m.logger.Printf("内核未安装，停止自动重启")
+			m.restorePrivateDNS()
+			return
+		}
+		m.logger.Printf("内核第 %d/%d 次自动重启失败: %v", current, maxAutoRestarts, err)
+	}
+}
+
+// sleepRestart 分片等待退避时间，期间一旦检测到主动停止立即返回 false。
+func (m *Manager) sleepRestart(d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		m.mu.Lock()
+		stopped := m.intentionalStop
+		m.mu.Unlock()
+		if stopped {
+			return false
+		}
+		remain := time.Until(deadline)
+		if remain <= 0 {
+			return true
+		}
+		if remain > 100*time.Millisecond {
+			remain = 100 * time.Millisecond
+		}
+		time.Sleep(remain)
+	}
+}
+
+// disablePrivateDNS 尽力临时关闭系统 Private DNS（仅 Android + TUN 时调用），
+// 返回是否成功关闭（用于启动失败时决定是否恢复）。
+func (m *Manager) disablePrivateDNS() bool {
+	disabled, err := sysutil.DisablePrivateDNS(m.paths.PrivateDNSStatePath())
+	if err != nil {
+		m.logger.Printf("临时关闭系统 Private DNS 失败（继续启动）: %v", err)
+		return false
+	}
+	if disabled {
+		m.logger.Printf("TUN 已开启：已临时关闭系统 Private DNS（原模式保存在 %s）", m.paths.PrivateDNSStatePath())
+	}
+	return disabled
+}
+
+// restorePrivateDNS 恢复系统 Private DNS（非 Android 或未修改时为空操作）。
+func (m *Manager) restorePrivateDNS() {
+	if err := sysutil.RestorePrivateDNS(m.paths.PrivateDNSStatePath()); err != nil {
+		m.logger.Printf("恢复系统 Private DNS 失败: %v", err)
+	}
+}
+
+// moveToRootCgroup 尽力把内核移入根 cgroup；平台不支持时静默跳过。
+func (m *Manager) moveToRootCgroup(pid int) {
+	if err := sysutil.MoveProcessToRootCgroup(pid); err != nil {
+		if errors.Is(err, sysutil.ErrNotSupported) {
+			return
+		}
+		m.logger.Printf("将内核移入根 cgroup 失败（继续运行）: %v", err)
+		return
+	}
+	m.logger.Printf("已将 mihomo 内核移入根 cgroup（pid=%d）", pid)
 }
 
 func (m *Manager) waitController(ctx context.Context, timeout time.Duration) error {
@@ -437,8 +732,22 @@ func (m *Manager) waitController(ctx context.Context, timeout time.Duration) err
 	return fmt.Errorf("等待 mihomo 控制器就绪超时（15s）: %v", lastErr)
 }
 
-// Stop 结束 mihomo 内核进程。
+// Stop 主动结束 mihomo 内核进程：先标记“主动停止”抑制看门狗，停止成功后
+// 恢复被临时关闭的系统 Private DNS。
 func (m *Manager) Stop() error {
+	m.mu.Lock()
+	m.intentionalStop = true
+	m.mu.Unlock()
+	if err := m.stopProcess(); err != nil {
+		return err
+	}
+	m.restorePrivateDNS()
+	return nil
+}
+
+// stopProcess 是低层停止逻辑：不发“主动停止”标记、不恢复 Private DNS。
+// 启动失败清理等内部流程复用它，避免误触发/误抑制看门狗。
+func (m *Manager) stopProcess() error {
 	m.mu.Lock()
 	pid := m.pid
 	m.mu.Unlock()
@@ -580,6 +889,14 @@ func (m *Manager) Status() Status {
 		Running:   m.Running(),
 		PID:       m.PID(),
 	}
+	// 自愈状态：重启次数与上次退出原因（仅诊断/面板展示，字段为新增可忽略）。
+	m.mu.Lock()
+	st.Restarts = m.restarts
+	exitAt, exitPID, lastReason := m.lastExitAt, m.lastExitPID, m.lastExitReason
+	m.mu.Unlock()
+	if !exitAt.IsZero() {
+		st.LastExit = formatLastExit(exitAt, exitPID, lastReason)
+	}
 	if doc != nil {
 		addr, secret = doc.Controller()
 		st.Controller.Mode = doc.GetString("rule", "mode")
@@ -623,6 +940,15 @@ func (m *Manager) Status() Status {
 		cancel()
 	}
 	return st
+}
+
+// formatLastExit 把上次退出信息格式化为 Status.LastExit 的单行文本。
+func formatLastExit(at time.Time, pid int, reason string) string {
+	s := at.Format(time.RFC3339) + fmt.Sprintf(" pid=%d", pid)
+	if reason != "" {
+		s += " err=" + reason
+	}
+	return s
 }
 
 func readInt(m map[string]any, key string) int {
