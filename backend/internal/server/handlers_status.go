@@ -7,6 +7,7 @@ import (
 
 	"mproxy/internal/config"
 	"mproxy/internal/core"
+	"mproxy/internal/moduledesc"
 	"mproxy/internal/sysutil"
 	"mproxy/internal/version"
 )
@@ -90,6 +91,10 @@ func (s *Server) buildStatus() statusResponse {
 		resp.Config.ModifiedAt = st.ModTime().Format(time.RFC3339)
 	}
 	resp.Update = updateInfo{Channel: settings.UpdateChannel, Ghproxy: settings.Ghproxy}
+	// 面板轮询状态下顺带刷新模块描述，让配置/节点数变化无需打开 WebUI 也能同步到
+	// KernelSU/Magisk 模块页。这是 best-effort：内容相同不会重写，任何错误都忽略，
+	// 绝不影响状态响应本身。
+	_ = moduledesc.WriteDescription(s.opts.Paths.ModuleDir, moduledesc.Build(version.Version, resp.Core, resp.Config.Summary))
 	return resp
 }
 

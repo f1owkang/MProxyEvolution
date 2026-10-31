@@ -21,6 +21,7 @@ import (
 	"mproxy/internal/core"
 	"mproxy/internal/download"
 	"mproxy/internal/job"
+	"mproxy/internal/moduledesc"
 	"mproxy/internal/server"
 	"mproxy/internal/sysutil"
 	"mproxy/internal/version"
@@ -98,6 +99,10 @@ func runServe(_ []string) {
 		logger.Printf("警告: 配置文件无效，请通过面板修复: %v", loadErr)
 	}
 	mgr := core.NewManager(paths, cfg, logger)
+	// 动态更新模块描述：让 KernelSU/Magisk 模块页无需打开 WebUI 就能看到当前状态。
+	// 先注册状态回调（启动/停止/崩溃/看门狗重启后刷新），再立即写一次（显示“已停止/已安装”）。
+	mgr.SetStateHook(func() { refreshModuleDescription(mgr, cfg, paths, logger) })
+	refreshModuleDescription(mgr, cfg, paths, logger)
 	jobs := job.NewManager()
 	dl := download.New()
 
@@ -211,6 +216,23 @@ func autoStartCore(mgr *core.Manager, logger *log.Logger) {
 			return
 		case <-time.After(delay):
 		}
+	}
+}
+
+// refreshModuleDescription 计算当前内核状态与配置摘要，并写回模块的 module.prop
+// description 行（KernelSU/Magisk 模块页会自动重新读取）。
+// 桌面开发环境没有 module.prop 时静默跳过；其它错误只记日志，绝不影响后端运行。
+func refreshModuleDescription(mgr *core.Manager, cfg *config.Manager, paths sysutil.Paths, logger *log.Logger) {
+	summary := config.Summary{}
+	if doc, err := cfg.Doc(); err == nil {
+		summary = doc.Summary()
+	}
+	desc := moduledesc.Build(version.Version, mgr.Status(), summary)
+	if err := moduledesc.WriteDescription(paths.ModuleDir, desc); err != nil {
+		if errors.Is(err, moduledesc.ErrModulePropNotFound) {
+			return
+		}
+		logger.Printf("更新模块描述失败: %v", err)
 	}
 }
 

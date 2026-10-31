@@ -86,6 +86,10 @@ type Manager struct {
 	restartMu  sync.Mutex
 	restarting bool
 
+	// stateHook 是内核状态变化回调（成功启动/启动失败清理/停止结束/异常退出后触发），
+	// 由 mu 保护。回调在锁外执行且 panic 会被 recover，避免影响内核生命周期。
+	stateHook func()
+
 	versionCache string
 	external     bool
 }
@@ -143,6 +147,30 @@ func (m *Manager) lastExitWasAbnormal() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return !m.lastExitAt.IsZero() && !m.lastExitIntentional && m.lastExitReason != ""
+}
+
+// SetStateHook 注册内核状态变化回调。回调会在成功启动、启动失败清理、停止结束与
+// 异常退出（崩溃/看门狗）后触发，用于刷新模块描述等旁路状态；传 nil 可取消。
+func (m *Manager) SetStateHook(hook func()) {
+	m.mu.Lock()
+	m.stateHook = hook
+	m.mu.Unlock()
+}
+
+// notifyStateHook 在锁外触发状态回调：nil-safe；回调 panic 只记日志，绝不影响内核流程。
+func (m *Manager) notifyStateHook() {
+	m.mu.Lock()
+	hook := m.stateHook
+	m.mu.Unlock()
+	if hook == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Printf("内核状态回调 panic（已忽略）: %v", r)
+		}
+	}()
+	hook()
 }
 
 // coreProcessNeedle 是内核命令行必须包含的片段，用于 pid 身份校验。
@@ -391,6 +419,14 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	// 启动前受控清理“上次异常退出”残留的 TUN 网卡；失败只告警，绝不影响启动。
 	m.cleanupStaleTUN(doc)
 	prepareAndroidNetwork(m.logger)
+	// x-mproxy.ipv6 开启时尽力开启 IPv6 转发（TUN 转发 IPv6 流量需要）；失败只告警。
+	if doc.Settings().IPv6 {
+		if err := sysutil.EnableIPv6Forwarding(); err != nil {
+			m.logger.Printf("开启 IPv6 转发失败（继续启动）: %v", err)
+		} else if sysutil.IsAndroid() {
+			m.logger.Printf("x-mproxy.ipv6=true：已开启 IPv6 转发")
+		}
+	}
 	logFile, err := m.openCoreLog()
 	if err != nil {
 		return fmt.Errorf("打开内核日志失败: %w", err)
@@ -432,6 +468,8 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 		if tail == "" {
 			tail = "（暂无日志）"
 		}
+		// 启动失败清理完成后通知状态回调（外部展示随之刷新），再返回错误。
+		m.notifyStateHook()
 		return fmt.Errorf("内核启动失败：%v\n最近日志：\n%s", err, tail)
 	}
 	started = true
@@ -440,6 +478,8 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 	m.mu.Unlock()
 	m.clearLastExit()
 	m.logger.Printf("mihomo 控制器已就绪（pid=%d）", pid)
+	// 启动成功后通知状态回调（刷新模块描述等旁路状态）。
+	m.notifyStateHook()
 	return nil
 }
 
@@ -587,6 +627,9 @@ func (m *Manager) afterExit(pid int, err error) {
 	} else {
 		m.logger.Printf("mihomo 内核已退出")
 	}
+	// 异常/正常退出都通知状态回调：崩溃后模块页应立即显示“已停止”，
+	// 看门狗自动重启成功后会再次回调刷新为“运行中”。
+	m.notifyStateHook()
 	if intentional {
 		// 主动停止：Stop() 负责恢复 Private DNS，看门狗不介入。
 		return
@@ -813,6 +856,8 @@ func (m *Manager) Stop() error {
 	m.mu.Lock()
 	m.intentionalStop = true
 	m.mu.Unlock()
+	// 无论停止成功与否，结束前都通知状态回调刷新外部展示。
+	defer m.notifyStateHook()
 	if err := m.stopProcess(); err != nil {
 		return err
 	}

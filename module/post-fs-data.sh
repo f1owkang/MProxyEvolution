@@ -19,6 +19,10 @@ chmod 0700 "$MPROXY_DATA/state" 2>/dev/null
 # 开启 IPv4 转发（TUN 模式需要；后端启动时也会再设置一次）
 echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null
 
+# 开启 IPv6 转发（x-mproxy.ipv6=true 时 TUN 需要；尽力而为，失败不阻断开机）
+echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null || true
+echo 1 > /proc/sys/net/ipv6/conf/default/forwarding 2>/dev/null || true
+
 # /dev/net/tun 兼容处理：部分内核只暴露 /dev/tun。
 mkdir -p /dev/net 2>/dev/null
 # 先清理指向不存在目标的旧软链（[ -e ] 对 dangling symlink 为假，必须先按 -L 判断再删除）。

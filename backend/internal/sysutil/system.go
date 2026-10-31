@@ -3,6 +3,7 @@ package sysutil
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -138,6 +139,25 @@ func TUNDeviceExists(name string) bool {
 		return false
 	}
 	return strings.TrimSpace(out) != ""
+}
+
+// EnableIPv6Forwarding 尽力开启 IPv6 转发（TUN 代理 IPv6 流量需要）。
+// 同时写 all 与 default 两个 forwarding 开关；非 Android（桌面开发）安全跳过。
+// 内核未编入 IPv6 或 /proc/sys 只读时返回错误，调用方记录日志后继续启动。
+func EnableIPv6Forwarding() error {
+	if !IsAndroid() {
+		return nil
+	}
+	var firstErr error
+	for _, path := range []string{
+		"/proc/sys/net/ipv6/conf/all/forwarding",
+		"/proc/sys/net/ipv6/conf/default/forwarding",
+	} {
+		if err := os.WriteFile(path, []byte("1\n"), 0o644); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("写入 %s 失败: %w", path, err)
+		}
+	}
+	return firstErr
 }
 
 // WaitForNetwork 等待默认路由出现，最多 timeout；Android 开机后网络可能晚于

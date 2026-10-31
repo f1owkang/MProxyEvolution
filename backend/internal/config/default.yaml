@@ -9,6 +9,7 @@ x-mproxy:
   ghproxy: ""              # 如 https://ghfast.top/，以 / 结尾
   onboarded: false
   private-dns: auto        # auto: TUN 运行时临时关闭系统 Private DNS；keep: 不修改
+  ipv6: false              # 开启 IPv6 代理/DNS（默认关闭；需设备/运营商支持）
 
 # 端口
 mixed-port: 7890

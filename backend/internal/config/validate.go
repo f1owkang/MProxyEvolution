@@ -195,6 +195,7 @@ func CriticalChanges(oldDoc, newDoc *Doc) []string {
 	compare("tun.enable", "tun", "enable")
 	compare("tun.stack", "tun", "stack")
 	compare("proxy-mode", "x-mproxy", "proxy-mode")
+	compare("ipv6", "ipv6")
 	compare("mode", "mode")
 	return changed
 }

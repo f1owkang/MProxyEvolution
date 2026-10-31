@@ -34,6 +34,7 @@ type Settings struct {
 	Ghproxy       string `json:"ghproxy"`
 	Onboarded     bool   `json:"onboarded"`
 	PrivateDNS    string `json:"privateDNS"`
+	IPv6          bool   `json:"ipv6"`
 }
 
 // SettingsPatch 是 PATCH /api/mproxy/settings 的请求体（指针区分“未提供”）。
@@ -46,6 +47,7 @@ type SettingsPatch struct {
 	Onboarded     *bool   `json:"onboarded,omitempty"`
 	TunEnabled    *bool   `json:"tunEnabled,omitempty"`
 	PrivateDNS    *string `json:"privateDNS,omitempty"`
+	IPv6          *bool   `json:"ipv6,omitempty"`
 }
 
 // DefaultSettings 返回 x-mproxy 的默认设置。
@@ -58,12 +60,15 @@ func DefaultSettings() Settings {
 		Ghproxy:       "",
 		Onboarded:     false,
 		PrivateDNS:    PrivateDNSAuto,
+		IPv6:          false,
 	}
 }
 
 // Settings 读取 x-mproxy 段，缺失字段使用默认值。
 func (d *Doc) Settings() Settings {
 	s := DefaultSettings()
+	// 兼容旧配置：x-mproxy 缺失（或没有 ipv6 字段）时沿用顶层 ipv6。
+	s.IPv6 = d.GetBool(false, "ipv6")
 	if _, ok := d.Get("x-mproxy"); !ok {
 		return s
 	}
@@ -78,6 +83,7 @@ func (d *Doc) Settings() Settings {
 	s.Ghproxy = d.GetString("", "x-mproxy", "ghproxy")
 	s.Onboarded = d.GetBool(false, "x-mproxy", "onboarded")
 	s.PrivateDNS = normalizePrivateDNS(d.GetString(s.PrivateDNS, "x-mproxy", "private-dns"))
+	s.IPv6 = d.GetBool(s.IPv6, "x-mproxy", "ipv6")
 	return s
 }
 
@@ -136,6 +142,7 @@ func (d *Doc) ApplySettings(p SettingsPatch) (bool, error) {
 			"ghproxy":        "",
 			"onboarded":      false,
 			"private-dns":    DefaultSettings().PrivateDNS,
+			"ipv6":           DefaultSettings().IPv6,
 		})
 	}
 	if p.Version != nil && *p.Version != d.GetInt(1, "x-mproxy", "version") {
@@ -210,6 +217,22 @@ func (d *Doc) ApplySettings(p SettingsPatch) (bool, error) {
 		}
 		if val != d.GetString(PrivateDNSAuto, "x-mproxy", "private-dns") {
 			d.Set([]string{"x-mproxy", "private-dns"}, val)
+			changed = true
+		}
+	}
+	if p.IPv6 != nil {
+		// x-mproxy.ipv6 是唯一开关：同步写入 mihomo 的顶层 ipv6 与 dns.ipv6。
+		val := *p.IPv6
+		if d.GetBool(false, "x-mproxy", "ipv6") != val {
+			d.Set([]string{"x-mproxy", "ipv6"}, val)
+			changed = true
+		}
+		if d.GetBool(false, "ipv6") != val {
+			d.Set([]string{"ipv6"}, val)
+			changed = true
+		}
+		if d.GetBool(false, "dns", "ipv6") != val {
+			d.Set([]string{"dns", "ipv6"}, val)
 			changed = true
 		}
 	}
@@ -394,6 +417,7 @@ func (d *Doc) EnsureDefaults(secret string) {
 			"ghproxy":        "",
 			"onboarded":      false,
 			"private-dns":    PrivateDNSAuto,
+			"ipv6":           false,
 		})
 	}
 	if s := d.GetString("", "secret"); s == "" && secret != "" {

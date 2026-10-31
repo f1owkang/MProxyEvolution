@@ -676,3 +676,123 @@ func TestPrivateDNSSetting(t *testing.T) {
 		t.Fatalf("Summary 不应包含 private-dns: %+v vs %+v", summaryBefore, summaryAfter)
 	}
 }
+
+func TestIPv6Setting(t *testing.T) {
+	doc, err := NewDefault("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 默认关闭；默认模板里 x-mproxy 与顶层、dns 的 ipv6 都是 false
+	if got := doc.Settings().IPv6; got {
+		t.Fatal("默认 x-mproxy.ipv6 应为 false")
+	}
+	if got := DefaultSettings().IPv6; got {
+		t.Fatal("DefaultSettings().IPv6 应为 false")
+	}
+	if n := strings.Count(defaultTemplate, "ipv6: false"); n < 3 {
+		t.Fatalf("默认模板应在 x-mproxy / 顶层 / dns 中都写 ipv6: false，实际出现 %d 次", n)
+	}
+	// 开启：x-mproxy.ipv6、顶层 ipv6、dns.ipv6 三处同步为 true
+	on := true
+	changed, err := doc.ApplySettings(SettingsPatch{IPv6: &on})
+	if err != nil || !changed {
+		t.Fatalf("ApplySettings(ipv6=true) changed=%v err=%v", changed, err)
+	}
+	if !doc.Settings().IPv6 {
+		t.Fatal("Settings().IPv6 应为 true")
+	}
+	if !doc.GetBool(false, "x-mproxy", "ipv6") {
+		t.Fatal("x-mproxy.ipv6 应为 true")
+	}
+	if !doc.GetBool(false, "ipv6") {
+		t.Fatal("顶层 ipv6 应为 true")
+	}
+	if !doc.GetBool(false, "dns", "ipv6") {
+		t.Fatal("dns.ipv6 应为 true")
+	}
+	if !doc.Summary().IPv6 {
+		t.Fatal("Summary.IPv6 应反映顶层 ipv6=true")
+	}
+	// 相同值不产生变更
+	if changed, err := doc.ApplySettings(SettingsPatch{IPv6: &on}); err != nil || changed {
+		t.Fatalf("重复开启不应变更: changed=%v err=%v", changed, err)
+	}
+	// 关闭：三处同步为 false
+	off := false
+	changed, err = doc.ApplySettings(SettingsPatch{IPv6: &off})
+	if err != nil || !changed {
+		t.Fatalf("ApplySettings(ipv6=false) changed=%v err=%v", changed, err)
+	}
+	if doc.Settings().IPv6 || doc.GetBool(true, "ipv6") || doc.GetBool(true, "dns", "ipv6") {
+		t.Fatal("关闭后 ipv6 相关字段都应为 false")
+	}
+	if doc.Summary().IPv6 {
+		t.Fatal("Summary.IPv6 应为 false")
+	}
+}
+
+func TestIPv6CompatRead(t *testing.T) {
+	// x-mproxy 缺失：兼容读取顶层 ipv6
+	doc, err := Parse([]byte("ipv6: true\nmode: rule\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doc.Settings().IPv6 {
+		t.Fatal("x-mproxy 缺失时应沿用顶层 ipv6=true")
+	}
+	// x-mproxy 存在但没有 ipv6 字段（旧配置）：同样沿用顶层 ipv6
+	oldDoc, err := Parse([]byte("ipv6: true\nx-mproxy:\n  version: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !oldDoc.Settings().IPv6 {
+		t.Fatal("旧配置缺少 x-mproxy.ipv6 时应沿用顶层 ipv6=true")
+	}
+	// 两者都缺失：回退 false
+	empty, err := Parse([]byte("mode: rule\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Settings().IPv6 {
+		t.Fatal("缺少 ipv6 字段时应回退 false")
+	}
+}
+
+func TestEnsureDefaultsIPv6(t *testing.T) {
+	doc, err := Parse([]byte("mixed-port: 7890\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.EnsureDefaults("")
+	v, ok := doc.Get("x-mproxy", "ipv6")
+	if !ok {
+		t.Fatal("EnsureDefaults 应在 x-mproxy 中补 ipv6")
+	}
+	if b, _ := v.(bool); b {
+		t.Fatalf("EnsureDefaults 的 ipv6 应为 false，得到 %v", v)
+	}
+	if doc.Settings().IPv6 {
+		t.Fatal("EnsureDefaults 后 Settings().IPv6 应为 false")
+	}
+}
+
+func TestCriticalChangesIPv6(t *testing.T) {
+	oldDoc, err := NewDefault("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changes := CriticalChanges(oldDoc, oldDoc.Clone()); len(changes) != 0 {
+		t.Fatalf("相同配置不应有关键变化: %v", changes)
+	}
+	newDoc := oldDoc.Clone()
+	newDoc.Set([]string{"ipv6"}, true)
+	found := false
+	for _, c := range CriticalChanges(oldDoc, newDoc) {
+		if c == "ipv6" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("顶层 ipv6 变化应触发关键变化: %v", CriticalChanges(oldDoc, newDoc))
+	}
+}
