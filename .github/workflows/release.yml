@@ -14,12 +14,12 @@ concurrency:
 
 jobs:
   release:
-    name: 构建并发布 GitHub Release
+    name: Build and publish GitHub Release
     # 明确钉在 24.04：ubuntu-latest 会随镜像漂移（zip/git 等工具行为差异），
     # 发版流水线不宜跟着变；需要升级时显式改这一行。
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout（含 submodule，需要完整历史生成 changelog）
+      - name: Checkout (with submodules; full history for changelog)
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -32,7 +32,7 @@ jobs:
       #    version，所以必须以 tag 为准。产物命名与 KernelSU Modules 规范一致：
       #    MProxyEvolution-<versionCode>-<version>.zip。
       # ---------------------------------------------------------------------
-      - name: 校验 tag 与 module/module.prop version 一致
+      - name: Verify tag matches module/module.prop version
         run: |
           set -euo pipefail
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -40,22 +40,22 @@ jobs:
           PROP_VERSION_STRIPPED="${PROP_VERSION#v}"
           VERSION_CODE="$(grep '^versionCode=' module/module.prop | cut -d= -f2)"
           if [ -z "$PROP_VERSION" ]; then
-            echo "::error::module/module.prop 缺少 version 字段"
+            echo "::error::module/module.prop is missing the version field"
             exit 1
           fi
           if ! printf '%s' "$VERSION_CODE" | grep -Eq '^[0-9]+$'; then
-            echo "::error::module/module.prop 的 versionCode 缺失或不是整数：${VERSION_CODE}"
+            echo "::error::module/module.prop versionCode is missing or not an integer: ${VERSION_CODE}"
             exit 1
           fi
           if [ "$TAG_VERSION" != "$PROP_VERSION_STRIPPED" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} 与 module/module.prop 的 version=${PROP_VERSION} 不一致（允许 v 前缀差异）"
+            echo "::error::tag ${GITHUB_REF_NAME} does not match module/module.prop version=${PROP_VERSION} (v prefix difference allowed)"
             exit 1
           fi
           echo "TAG_VERSION=${TAG_VERSION}" >> "$GITHUB_ENV"
           echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_ENV"
           echo "ASSET_NAME=MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}.zip" >> "$GITHUB_ENV"
-          echo "版本校验通过：tag=${GITHUB_REF_NAME} module.prop version=${PROP_VERSION} versionCode=${VERSION_CODE}"
-          echo "发布资产：MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}.zip"
+          echo "Version check passed: tag=${GITHUB_REF_NAME} module.prop version=${PROP_VERSION} versionCode=${VERSION_CODE}"
+          echo "Release asset: MProxyEvolution-${VERSION_CODE}-${TAG_VERSION}.zip"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -68,7 +68,7 @@ jobs:
       # ---------------------------------------------------------------------
       # 1. 发布前校验：发布产物不可替换，回归必须在创建 release 之前挡住
       # ---------------------------------------------------------------------
-      - name: 发布前校验（sh -n / gofmt / go vet / go test）
+      - name: Pre-release checks (sh -n / gofmt / go vet / go test)
         run: |
           set -euo pipefail
           for f in module/*.sh scripts/*.sh; do
@@ -77,7 +77,7 @@ jobs:
           done
           unformatted="$(find backend -name '*.go' -not -path '*/webui/dist/*' -print0 | xargs -0 -r gofmt -l)"
           if [ -n "$unformatted" ]; then
-            echo "::error::以下 Go 文件未通过 gofmt："
+            echo "::error::The following Go files are not gofmt-formatted:"
             echo "$unformatted"
             exit 1
           fi
@@ -95,7 +95,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: panel.lock
 
-      - name: 缓存 Go 构建缓存
+      - name: Cache Go build cache
         uses: actions/cache@v4
         with:
           path: |
@@ -108,14 +108,14 @@ jobs:
       # ---------------------------------------------------------------------
       # 2. 构建 dist/MProxyEvolution-<versionCode>-<version>.zip + .sha256
       # ---------------------------------------------------------------------
-      - name: 构建模块包
+      - name: Build module package
         run: bash scripts/build.sh --version "${TAG_VERSION}"
 
-      - name: 校验构建产物
+      - name: Verify build artifacts
         run: |
           set -euo pipefail
           ZIP="dist/${ASSET_NAME}"
-          [ -f "$ZIP" ] || { echo "::error::未生成 ${ZIP}"; exit 1; }
+          [ -f "$ZIP" ] || { echo "::error::${ZIP} was not generated"; exit 1; }
           ls -lh dist/
           cat "dist/${ASSET_NAME}.sha256"
           # 模块包必须能完整解压，且包含模块脚本 / THIRD_PARTY_NOTICES.txt / 正确版本
@@ -123,9 +123,9 @@ jobs:
           unzip -l "$ZIP" | grep -q 'module.prop'
           unzip -l "$ZIP" | grep -q 'THIRD_PARTY_NOTICES.txt'
           unzip -p "$ZIP" module.prop | grep -qx "version=${TAG_VERSION}" \
-            || { echo "::error::zip 内 module.prop version 与 tag 不一致"; exit 1; }
+            || { echo "::error::module.prop version inside the zip does not match the tag"; exit 1; }
           unzip -p "$ZIP" module.prop | grep -q '^updateJson=https://raw.githubusercontent.com/' \
-            || { echo "::error::zip 内 module.prop 缺少 updateJson"; exit 1; }
+            || { echo "::error::module.prop inside the zip is missing updateJson"; exit 1; }
 
       # ---------------------------------------------------------------------
       # 3. changelog.txt（同时作为 Release notes 与 update.json 的 changelog 资产）
@@ -134,7 +134,7 @@ jobs:
       #    一步回写）。不用 `git describe --tags`：tag 不一定都在 main 祖先链上，
       #    测试 tag 也会被误当作基线。兜底顺序：基线 → 上一个正式 v* tag → 全量。
       # ---------------------------------------------------------------------
-      - name: 生成 changelog.txt
+      - name: Generate changelog.txt
         run: |
           set -euo pipefail
           BASE="$(tr -d '[:space:]' < .release-baseline 2>/dev/null || true)"
@@ -143,20 +143,20 @@ jobs:
           if [ -n "$BASE" ] \
              && git cat-file -e "${BASE}^{commit}" 2>/dev/null \
              && git merge-base --is-ancestor "$BASE" "${GITHUB_REF_NAME}^{commit}"; then
-            echo "使用 .release-baseline=${BASE} 作为更新日志基线"
+            echo "Using .release-baseline=${BASE} as the changelog base"
             git log "${BASE}..${GITHUB_REF_NAME}" --pretty='- %s' > changelog.txt
           else
-            echo "::warning::.release-baseline 缺失或不是 ${GITHUB_REF_NAME} 的祖先，回落到上一个正式 tag"
+            echo "::warning::.release-baseline is missing or not an ancestor of ${GITHUB_REF_NAME}; falling back to the previous stable tag"
           fi
 
           if [ ! -s changelog.txt ]; then
             PREV_TAG="$(git tag --merged "${GITHUB_REF_NAME}^{commit}" --list 'v[0-9]*' \
               --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -n1 || true)"
             if [ -n "$PREV_TAG" ]; then
-              echo "使用上一个正式 tag ${PREV_TAG} 作为更新日志基线"
+              echo "Using previous stable tag ${PREV_TAG} as the changelog base"
               git log "${PREV_TAG}..${GITHUB_REF_NAME}" --pretty='- %s' > changelog.txt
             else
-              echo "::warning::没有可用的上一个正式 tag，输出全量提交"
+              echo "::warning::No previous stable tag available; using the full commit history"
               git log --pretty='- %s' > changelog.txt
             fi
           fi
@@ -193,7 +193,7 @@ jobs:
       # 5. 先建 draft 上传资产，再发布（release immutability 下资产只能在 draft
       #    阶段上传）
       # ---------------------------------------------------------------------
-      - name: 创建 draft GitHub Release
+      - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           name: MihomoProxy Evolution ${{ github.ref_name }}
@@ -207,7 +207,7 @@ jobs:
             dist/${{ env.ASSET_NAME }}.sha256
             changelog.txt
 
-      - name: 发布 Release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -217,7 +217,7 @@ jobs:
           # KernelSU Modules 只接受 immutable release；未开启时只告警（资源已发布）。
           IMMUTABLE="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .immutable)"
           if [ "$IMMUTABLE" != "true" ]; then
-            echo "::warning::release ${GITHUB_REF_NAME} 不是 immutable；请在 Settings → General → Releases 开启 Enable release immutability 后再发下一版"
+            echo "::warning::release ${GITHUB_REF_NAME} is not immutable; enable Enable release immutability under Settings -> General -> Releases before the next release"
           fi
 
       # ---------------------------------------------------------------------
@@ -228,14 +228,14 @@ jobs:
       #    - .release-baseline：本次发布内容所在 commit（解析后的 SHA），作为
       #      下一版 changelog 的基线。
       # ---------------------------------------------------------------------
-      - name: 回写 update.json 与 .release-baseline
+      - name: Write back update.json and .release-baseline
         run: |
           set -euo pipefail
           VERSION="$(grep '^version=' module/module.prop | cut -d= -f2)"
           VERSION="$(printf '%s' "$VERSION" | sed 's/^v//')"
           VERSION_CODE="$(grep '^versionCode=' module/module.prop | cut -d= -f2)"
-          [ -n "$VERSION_CODE" ] || { echo "::error::module.prop 缺少 versionCode"; exit 1; }
-          [ -n "$ASSET_NAME" ] || { echo "::error::ASSET_NAME 未设置"; exit 1; }
+          [ -n "$VERSION_CODE" ] || { echo "::error::module.prop is missing versionCode"; exit 1; }
+          [ -n "$ASSET_NAME" ] || { echo "::error::ASSET_NAME is not set"; exit 1; }
 
           cat > update.json <<EOF
           {
@@ -253,9 +253,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add update.json .release-baseline
           if git diff --cached --quiet; then
-            echo "update.json 与 .release-baseline 已是最新"
+            echo "update.json and .release-baseline are already up to date"
             exit 0
           fi
-          git commit -m "chore(release): update.json 更新至 ${GITHUB_REF_NAME}（含发布基线）"
+          git commit -m "chore(release): update update.json to ${GITHUB_REF_NAME} (with release baseline)"
           git push origin HEAD:main
-          echo "已回写 update.json 与 .release-baseline 到 main（version=${VERSION}）"
+          echo "Wrote update.json and .release-baseline back to main (version=${VERSION})"

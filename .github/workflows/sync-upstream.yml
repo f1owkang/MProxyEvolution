@@ -23,17 +23,17 @@ concurrency:
 
 jobs:
   sync:
-    name: 同步上游 release tag
+    name: Sync upstream release tags
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout（main + mihomo submodule）
+      - name: Checkout (main + mihomo submodule)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 解析上游最新 release tag
+      - name: Resolve latest upstream release tags
         id: latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
           echo "mihomo=$MIHOMO_TAG" >> "$GITHUB_OUTPUT"
           echo "zashboard=$ZASHBOARD_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: 更新 mihomo submodule 到 release tag
+      - name: Update mihomo submodule to the release tag
         env:
           MIHOMO_TAG: ${{ steps.latest.outputs.mihomo }}
         run: |
@@ -75,7 +75,7 @@ jobs:
             "refs/tags/${ZASHBOARD_TAG}:refs/tags/${ZASHBOARD_TAG}"
           if ! git -C /tmp/mproxy-panel merge --no-ff --no-edit \
                -m "chore: merge upstream zashboard ${ZASHBOARD_TAG}" "$ZASHBOARD_TAG"; then
-            echo "::error::zashboard ${ZASHBOARD_TAG} merge 冲突，需要人工解决 panel 分支"
+            echo "::error::zashboard ${ZASHBOARD_TAG} merge conflict; resolve the panel branch manually"
             git -C /tmp/mproxy-panel merge --abort || true
             exit 1
           fi
@@ -85,7 +85,7 @@ jobs:
           echo "commit=$PANEL_COMMIT" >> "$GITHUB_OUTPUT"
           echo "merged zashboard ${ZASHBOARD_TAG} -> ${PANEL_COMMIT}"
 
-      - name: 更新 panel.lock 并创建 PR
+      - name: Update panel.lock and create PR
         if: steps.panel.outputs.commit != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,7 +101,7 @@ jobs:
           printf '%s\n' "$PANEL_COMMIT" > panel.lock
           git add panel.lock upstream/mihomo
           if git diff --cached --quiet; then
-            echo "已是最新，无需 PR"
+            echo "Already up to date; no PR needed"
             exit 0
           fi
           git commit -m "chore(upstream): mihomo ${MIHOMO_TAG}, zashboard ${ZASHBOARD_TAG}"

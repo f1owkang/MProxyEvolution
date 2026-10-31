@@ -18,13 +18,13 @@ permissions:
 
 jobs:
   test:
-    name: 语法检查 / gofmt / go vet / go test
+    name: Shell syntax / gofmt / go vet / go test
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Shell 语法检查（sh -n）
+      - name: Shell syntax check (sh -n)
         run: |
           set -euo pipefail
           for f in module/*.sh scripts/*.sh; do
@@ -39,16 +39,16 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       # gofmt 守卫：Windows 检出若混入 CRLF 或手工改动未格式化，先在 PR 阶段挡住
-      - name: gofmt 检查
+      - name: gofmt check
         run: |
           set -euo pipefail
           unformatted="$(find backend -name '*.go' -not -path '*/webui/dist/*' -print0 | xargs -0 -r gofmt -l)"
           if [ -n "$unformatted" ]; then
-            echo "::error::以下 Go 文件未通过 gofmt（请在仓库根执行 gofmt -w 后提交）："
+            echo "::error::The following Go files are not gofmt-formatted (run gofmt -w from the repo root and commit):"
             echo "$unformatted"
             exit 1
           fi
-          echo "gofmt 检查通过"
+          echo "gofmt check passed"
 
       - name: go vet
         working-directory: backend
@@ -59,7 +59,7 @@ jobs:
         run: go test ./...
 
   metadata:
-    name: 模块元数据校验
+    name: Module metadata validation
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -70,12 +70,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 安装 PyYAML
+      - name: Install PyYAML
         run: python -m pip install --disable-pip-version-check pyyaml
 
       # JSON/YAML 全部可解析 + 模块元数据内部一致（module.prop / module.yaml /
       # module.json / update.json / .release-baseline）。
-      - name: 校验 JSON/YAML 与模块元数据
+      - name: Validate JSON/YAML and module metadata
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -97,7 +97,7 @@ jobs:
               keys = [k for k, _ in pairs]
               dup = {k for k in keys if keys.count(k) > 1}
               if dup:
-                  errors.append(f'{path}: JSON 存在重复键 {sorted(dup)}')
+                  errors.append(f'{path}: duplicate JSON keys {sorted(dup)}')
               return json.loads(text)
 
           def load_yaml(path):
@@ -118,12 +118,12 @@ jobs:
               try:
                   load_yaml(path)
               except Exception as exc:  # noqa: BLE001 - 汇总后再报
-                  errors.append(f'{path}: YAML 解析失败：{exc}')
+                  errors.append(f'{path}: YAML parse failed: {exc}')
           for path in sorted(root.glob('.github/ISSUE_TEMPLATE/*.yml')):
               try:
                   load_yaml(path)
               except Exception as exc:  # noqa: BLE001
-                  errors.append(f'{path}: YAML 解析失败：{exc}')
+                  errors.append(f'{path}: YAML parse failed: {exc}')
           for path in sorted(root.glob('.github/ISSUE_TEMPLATE/*.yaml')):
               load_yaml(path)
 
@@ -135,52 +135,52 @@ jobs:
                   continue
               key, value = line.split('=', 1)
               if key in prop:
-                  errors.append(f'module.prop: 重复字段 {key}')
+                  errors.append(f'module.prop: duplicate field {key}')
               prop[key] = value
 
           for key in ('id', 'name', 'version', 'versionCode', 'author', 'description'):
-              check(prop.get(key), f'module.prop: 缺少必填字段 {key}')
+              check(prop.get(key), f'module.prop: missing required field {key}')
           check(re.fullmatch(r'[A-Za-z][A-Za-z0-9._-]{1,63}', prop.get('id', '')),
-                f"module.prop: id 不合法：{prop.get('id')!r}")
+                f"module.prop: invalid id: {prop.get('id')!r}")
           check(re.fullmatch(r'\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?', prop.get('version', '')),
-                f"module.prop: version 不是三位 X.Y.Z 形式（不带 v）：{prop.get('version')!r}")
+                f"module.prop: version must be X.Y.Z without the v prefix: {prop.get('version')!r}")
           check(prop.get('versionCode', '').isdigit()
                 and 1 <= int(prop['versionCode']) <= 2147483647,
-                f"module.prop: versionCode 必须是 1..2147483647 的整数：{prop.get('versionCode')!r}")
+                f"module.prop: versionCode must be an integer in 1..2147483647: {prop.get('versionCode')!r}")
           check(prop.get('updateJson', '').startswith('https://raw.githubusercontent.com/'),
-                'module.prop: updateJson 缺失或不是 raw.githubusercontent.com 地址')
+                'module.prop: updateJson missing or not a raw.githubusercontent.com URL')
 
           version = prop.get('version', '')
           version_code = int(prop['versionCode']) if prop.get('versionCode', '').isdigit() else 0
 
           # 4) module.yaml 与 module.prop 一致
-          check(module_yaml.get('schemaVersion') == 1, 'module.yaml: schemaVersion 必须为 1')
+          check(module_yaml.get('schemaVersion') == 1, 'module.yaml: schemaVersion must be 1')
           check(module_yaml.get('id') == prop.get('id'),
-                f"module.yaml: id ({module_yaml.get('id')!r}) 与 module.prop ({prop.get('id')!r}) 不一致")
-          check(module_yaml.get('name') == prop.get('name'), 'module.yaml: name 与 module.prop 不一致')
+                f"module.yaml: id ({module_yaml.get('id')!r}) does not match module.prop ({prop.get('id')!r})")
+          check(module_yaml.get('name') == prop.get('name'), 'module.yaml: name does not match module.prop')
           check(isinstance(module_yaml.get('summary'), str)
-                and len(module_yaml['summary']) <= 500, 'module.yaml: summary 缺失或超过 500 字符')
-          check(module_yaml.get('license'), 'module.yaml: 缺少 license')
+                and len(module_yaml['summary']) <= 500, 'module.yaml: summary missing or longer than 500 characters')
+          check(module_yaml.get('license'), 'module.yaml: missing license')
           for key in ('homepage', 'support'):
               check(str(module_yaml.get(key, '')).startswith('https://'),
-                    f'module.yaml: {key} 必须是 https 地址')
+                    f'module.yaml: {key} must be an https URL')
           description = module_yaml.get('description')
           check(description and (root / description).is_file(),
-                f'module.yaml: description 指向的文件不存在：{description!r}')
+                f'module.yaml: description file does not exist: {description!r}')
           icon = module_yaml.get('icon')
           if icon and not (root / icon).is_file():
-              warnings.append(f'module.yaml: icon 指向的文件不存在：{icon}（KernelSU Modules 提交前需补上）')
+              warnings.append(f'module.yaml: icon file does not exist: {icon} (add it before submitting to KernelSU Modules)')
           archs = (module_yaml.get('compatibility') or {}).get('architectures') or []
           check(set(archs) == {'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'},
-                f'module.yaml: compatibility.architectures 需为四架构，实际 {archs}')
+                f'module.yaml: compatibility.architectures must list four architectures, got {archs}')
           check(re.fullmatch(r'[^/\\]+\.zip', (module_yaml.get('release') or {}).get('assetPattern', '')),
-                'module.yaml: release.assetPattern 必须是不含路径分隔符的 *.zip glob')
-          check(bool(module_yaml.get('authors')), 'module.yaml: 缺少 authors')
+                'module.yaml: release.assetPattern must be a *.zip glob without path separators')
+          check(bool(module_yaml.get('authors')), 'module.yaml: missing authors')
 
           # 5) module.json（KernelSU/MMRL 通用摘要）
-          check(module_json.get('metamodule') is False, 'module.json: metamodule 必须为 false')
-          check(str(module_json.get('sourceUrl', '')).startswith('https://'), 'module.json: sourceUrl 缺失')
-          check(module_json.get('summary'), 'module.json: 缺少 summary')
+          check(module_json.get('metamodule') is False, 'module.json: metamodule must be false')
+          check(str(module_json.get('sourceUrl', '')).startswith('https://'), 'module.json: sourceUrl missing')
+          check(module_json.get('summary'), 'module.json: missing summary')
 
           # 6) update.json 内部自洽，且 versionCode 不超前于 module.prop
           #    发版前维护者会先递增 module.prop 的 version/versionCode，update.json
@@ -189,29 +189,29 @@ jobs:
           update_version = str(update_json.get('version', ''))
           update_code = update_json.get('versionCode')
           check(re.fullmatch(r'\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?', update_version),
-                f'update.json: version 必须是三位 X.Y.Z（不带 v，tag 为 vX.Y.Z），实际 {update_version!r}')
+                f'update.json: version must be X.Y.Z without the v prefix (tag is vX.Y.Z), got {update_version!r}')
           check(isinstance(update_code, int) and 1 <= update_code <= 2147483647,
-                f'update.json: versionCode 必须是 1..2147483647 的整数，实际 {update_code!r}')
+                f'update.json: versionCode must be an integer in 1..2147483647, got {update_code!r}')
           if isinstance(update_code, int) and update_code > version_code:
-              errors.append(f'update.json: versionCode ({update_code}) 不能大于 module.prop ({version_code})')
+              errors.append(f'update.json: versionCode ({update_code}) must not exceed module.prop ({version_code})')
           if update_version != version:
               warnings.append(
-                  f'update.json: version ({update_version}) 落后于 module.prop ({version})；'
-                  '发布成功后由 Release workflow 自动回写')
+                  f'update.json: version ({update_version}) is behind module.prop ({version});'
+                  'the Release workflow writes it back after a successful publish')
           zip_url = update_json.get('zipUrl', '')
           # 资产命名统一为 {id}-{versionCode}-{version}.zip；URL 目录是发布 tag（vX.Y.Z）
           expected_zip = f'MProxyEvolution-{update_code}-{update_version}.zip'
           expected_tag = f'v{update_version}'
           check(zip_url.endswith(f'/releases/download/{expected_tag}/{expected_zip}'),
-                f'update.json: zipUrl 需指向 releases/download/{expected_tag}/{expected_zip}，实际 {zip_url!r}')
+                f'update.json: zipUrl must point to releases/download/{expected_tag}/{expected_zip}, got {zip_url!r}')
           changelog = update_json.get('changelog', '')
           check(changelog.endswith(f'/releases/download/{expected_tag}/changelog.txt'),
-                f'update.json: changelog 需指向 releases/download/{expected_tag}/changelog.txt，实际 {changelog!r}')
+                f'update.json: changelog must point to releases/download/{expected_tag}/changelog.txt, got {changelog!r}')
 
           # 7) .release-baseline 为 40 位 commit sha
           baseline = (root / '.release-baseline').read_text(encoding='utf-8').strip()
           check(re.fullmatch(r'[0-9a-f]{40}', baseline),
-                f'.release-baseline: 必须是 40 位小写 commit sha，实际 {baseline!r}')
+                f'.release-baseline: must be a 40-character lowercase commit sha, got {baseline!r}')
 
           for message in warnings:
               print(f'::warning::{message}')
@@ -219,15 +219,15 @@ jobs:
               for message in errors:
                   print(f'::error::{message}')
               sys.exit(1)
-          print('模块元数据校验通过')
+          print('Module metadata validation passed')
           PY
 
   build:
-    name: 面板 / 后端 / 内核 / 打包
+    name: Panel / backend / core / package
     needs: [test, metadata]
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout（含 submodule）
+      - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -253,7 +253,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: panel.lock
 
-      - name: 缓存 Go 构建缓存（mihomo 源码构建较慢）
+      - name: Cache Go build cache (mihomo builds are slow)
         uses: actions/cache@v4
         with:
           path: |
@@ -263,10 +263,10 @@ jobs:
           restore-keys: |
             go-build-${{ runner.os }}-
 
-      - name: 构建模块包
+      - name: Build module package
         run: bash scripts/build.sh --version "0.1.0-ci.${GITHUB_SHA::7}"
 
-      - name: 展示与校验产物
+      - name: Show and verify artifacts
         run: |
           set -euo pipefail
           ls -lh dist/
@@ -275,7 +275,7 @@ jobs:
           unzip -l dist/MProxyEvolution-*.zip | grep -q 'THIRD_PARTY_NOTICES.txt'
           unzip -p dist/MProxyEvolution-*.zip module.prop | grep -q '^updateJson=https://raw.githubusercontent.com/'
 
-      - name: 上传 artifact（不发布）
+      - name: Upload artifact (no release)
         uses: actions/upload-artifact@v4
         with:
           name: MProxyEvolution-ci-${{ github.sha }}
