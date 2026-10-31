@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Shell syntax check (sh -n)
         run: |
@@ -36,7 +36,7 @@ jobs:
         run: bash tests/scripts_test.sh
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -66,10 +66,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -230,10 +230,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -253,7 +253,7 @@ jobs:
         run: yamllint -c .yamllint .github/workflows .github/ISSUE_TEMPLATE module.yaml
 
       - name: Setup Go (actionlint)
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache: false
@@ -262,20 +262,23 @@ jobs:
         run: |
           set -euo pipefail
           GOBIN="$(go env GOPATH)/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          "$(go env GOPATH)/bin/actionlint"
+          # shellcheck integration is disabled here: the dedicated `shellcheck` step above uses a
+          # pinned shellcheck-py version, while actionlint would otherwise pick the runner's
+          # distro shellcheck (different version/rules) and fail on version-specific findings.
+          "$(go env GOPATH)/bin/actionlint" -shellcheck=
 
   panel:
     name: Panel lint / type-check
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # dev-panel.sh fetches the panel branch commit pinned in panel.lock.
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 11.20.0
 
@@ -284,7 +287,7 @@ jobs:
 
       # Cache key uses the checked-out fork lockfile (exists only after --prepare).
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: pnpm
@@ -315,13 +318,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: |
@@ -329,19 +332,19 @@ jobs:
             upstream/mihomo/go.sum
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 11.20.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: pnpm
           cache-dependency-path: panel.lock
 
       - name: Cache Go build cache (mihomo builds are slow)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -411,7 +414,7 @@ jobs:
           du -h "$universal" "${split_zips[@]}"
 
       - name: Upload artifact (no release)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MProxyEvolution-ci-${{ github.sha }}
           path: |
