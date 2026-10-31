@@ -135,7 +135,8 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 ### YAML / 配置
 
 - `config.yaml` 的键名、`x-mproxy` 字段与默认值是对外契约：`version`、`auto-start`、`proxy-mode`、
-  `update-channel`、`ghproxy`、`onboarded`，不要改名或换类型；缺失字段用 `DefaultSettings()` 兼容。
+  `update-channel`、`ghproxy`、`onboarded`、`private-dns`，不要改名或换类型；缺失字段用
+  `DefaultSettings()` 兼容（`private-dns` 缺失/未知回退 `auto`，写入路径严格校验 `auto|keep`）。
 - `tun.enable` 与 `x-mproxy.proxy-mode` 必须一致（tun ↔ true，mixed ↔ false）；`tun.include-package`
   存在即白名单，`exclude-package` 存在即黑名单，互斥。
 - `update.json` 与 `.release-baseline` 发版后由 CI 回写，不要手改。
@@ -214,8 +215,9 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   （后端启动时也会尽力重复准备）。
 - 默认 TUN 开启、`stack: mixed`、`auto-route: true`、`dns-hijack: any:53`、MTU 1500；DNS 为 fake-ip
   （`198.18.0.1/16`），监听 `0.0.0.0:1053`，nameserver 为 DoH。TProxy/redirect 在 v0.1 拒绝，不要顺手启用。
-- TUN 启动前临时保存并关闭系统 Private DNS（`state/private_dns`，0600，已存在不覆盖），停止或自愈失败时
-  恢复原值；不要覆盖用户原始模式，也不要让它长期停留在 off。
+- TUN 启动前按 `x-mproxy.private-dns` 决定是否临时保存并关闭系统 Private DNS（`state/private_dns`，
+  0600，已存在不覆盖）：`auto`（默认）关闭，`keep` 完全不动系统设置；停止或自愈失败时**始终**按状态
+  文件恢复原值（与当前设置无关），不要覆盖用户原始模式，也不要让它长期停留在 off。
 - 端口默认：后端 9091、controller 9090、mixed 7890、socks 7891、http 0、DNS 1053；改端口要同步默认模板、
   README 与面板默认值，并注意 `CriticalChanges` 会触发内核重启。
 

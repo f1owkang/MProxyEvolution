@@ -149,7 +149,7 @@ Android 8.0+，KernelSU / KernelSU Next / Magisk 26+，arm64-v8a / armeabi-v7a /
 
 - **仅支持 TUN 模式**：`proxy-mode` 只接受 `tun` 与 `mixed`，v0.1 不提供 tproxy / redirect；透明代理统一走 TUN。
 - **热点 / USB 共享等下游设备不保证**：TUN 由 mihomo `auto-route` 负责本机流量，共享给其它设备的流量是否被代理取决于 ROM 与网络栈，当前不做保证。
-- **Private DNS（DoT）**：TUN 运行期间模块会保存并自动关闭系统 Private DNS（`private_dns_mode`），停止时恢复原值（异常退出后后端尽力恢复），避免 DoT 绕过 fake-ip DNS 导致解析异常。若设备被强制重启导致未恢复，可在系统「网络和互联网 → 私人 DNS」中手动改回。
+- **Private DNS（DoT）**：TUN 运行期间模块会保存并自动关闭系统 Private DNS（`private_dns_mode`），停止时恢复原值（异常退出后后端尽力恢复），避免 DoT 绕过 fake-ip DNS 导致解析异常。默认策略为 `x-mproxy.private-dns: auto`；如需保持系统 Private DNS 不变，可在面板「内核 → Private DNS」选择「保持系统设置」（写入 `keep`）。若设备被强制重启导致未恢复，可在系统「网络和互联网 → 私人 DNS」中手动改回。
 - **其它 VPN 并存**：与其它 VPN（包括系统自带 VPN）同时开启可能互相抢占路由，建议只保留一个；双卡、电视盒与热点共享需要真机验证。
 - **管理器冻结 / 省电策略**：内核进程会脱离管理器 cgroup 运行，管理器切后台或被回收不会中断代理；部分 ROM 的激进省电/后台冻结仍可能杀掉进程，建议为管理器与 MihomoProxy Evolution 关闭电池优化。排查时用 `mproxy status` 与 `/data/adb/mproxy/logs/`。
 - **日志位置**：`/data/adb/mproxy/logs/`（`backend.log`、`core.log`、`service.log`），面板「设置 → 诊断」可导出脱敏信息；`service.log` 超过 1 MiB 自动截断并保留最后 2000 行。
