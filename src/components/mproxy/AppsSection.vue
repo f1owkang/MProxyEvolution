@@ -58,7 +58,7 @@
           <span v-if="loading"> · 加载中…</span>
         </div>
 
-        <div class="scrollbar-thin mt-2 max-h-96 overflow-y-auto rounded-lg bg-base-200/60">
+        <div class="bg-base-200/60 mt-2 max-h-96 scrollbar-thin overflow-y-auto rounded-lg">
           <div
             v-if="!loading && !filteredPackages.length"
             class="text-base-content/50 p-4 text-center text-xs"
@@ -92,7 +92,9 @@
             </span>
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm">{{ pkg.label || pkg.packageName }}</span>
-              <span class="text-base-content/45 block truncate text-[11px]">{{ pkg.packageName }}</span>
+              <span class="text-base-content/45 block truncate text-[11px]">{{
+                pkg.packageName
+              }}</span>
             </span>
           </label>
         </div>
@@ -110,12 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  mproxyApi,
-  type AppsMode,
-  type MProxyAppsResponse,
-  type PackageInfo,
-} from '@/api/mproxy'
+import { mproxyApi, type AppsMode, type MProxyAppsResponse, type PackageInfo } from '@/api/mproxy'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { computed, onMounted, ref } from 'vue'
 
@@ -123,7 +120,23 @@ type AppEntry = PackageInfo & { label?: string }
 
 type KsuPackageManager = {
   pm?: {
-    list?: () => Promise<Array<{ packageName?: string; label?: string; name?: string; uid?: number; system?: boolean }>> | Array<{ packageName?: string; label?: string; name?: string; uid?: number; system?: boolean }>
+    list?: () =>
+      | Promise<
+          Array<{
+            packageName?: string
+            label?: string
+            name?: string
+            uid?: number
+            system?: boolean
+          }>
+        >
+      | Array<{
+          packageName?: string
+          label?: string
+          name?: string
+          uid?: number
+          system?: boolean
+        }>
   }
 }
 
@@ -248,7 +261,12 @@ const apply = async () => {
   try {
     const mode = currentMode.value
     const result = await mproxyApi.putApps(mode, mode === 'all' ? [] : selected.value)
-    apps.value = result
+    // PUT 响应不含 tunEnabled（重启后由 GET /api/mproxy/apps 提供），保留旧值即可。
+    apps.value = {
+      mode: result.mode,
+      apps: result.apps,
+      tunEnabled: apps.value?.tunEnabled ?? false,
+    }
     setMessage(mode === 'all' ? '已切换为全部应用' : '应用分流已保存并生效')
     emit('changed')
   } catch (e) {

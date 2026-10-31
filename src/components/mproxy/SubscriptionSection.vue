@@ -44,7 +44,11 @@
             </button>
           </div>
           <span class="text-base-content/45 text-xs">
-            {{ mode === 'merge' ? '保留现有节点与规则，追加订阅内容' : '用订阅内容覆盖节点、规则与 provider' }}
+            {{
+              mode === 'merge'
+                ? '保留现有节点与规则，追加订阅内容'
+                : '用订阅内容覆盖节点、规则与 provider'
+            }}
           </span>
         </div>
 
@@ -75,7 +79,7 @@
         <div v-if="showPaste">
           <textarea
             v-model="pasteContent"
-            class="textarea scrollbar-thin w-full font-mono text-xs"
+            class="textarea w-full scrollbar-thin font-mono text-xs"
             rows="8"
             placeholder="在此粘贴完整 Clash 配置…"
             spellcheck="false"
@@ -185,7 +189,9 @@
           />
         </div>
         <div class="mt-2 flex items-center justify-between gap-2">
-          <span class="text-base-content/45 text-xs">写入 config.yaml 的 proxy-providers 并应用</span>
+          <span class="text-base-content/45 text-xs"
+            >写入 config.yaml 的 proxy-providers 并应用</span
+          >
           <button
             class="btn btn-primary btn-sm"
             :disabled="adding || !form.name.trim() || !form.url.trim()"
@@ -207,13 +213,9 @@
 </template>
 
 <script setup lang="ts">
-import {
-  mproxyApi,
-  type ImportMode,
-  type MihomoProvider,
-} from '@/api/mproxy'
+import { mproxyApi, type ImportMode, type MihomoProvider } from '@/api/mproxy'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
 const emit = defineEmits<{
   changed: []
@@ -278,10 +280,7 @@ const doImport = async (payload: { url?: string; content?: string }) => {
     await loadProviders()
     emit('changed')
   } catch (error) {
-    setImportMessage(
-      `导入失败：${error instanceof Error ? error.message : String(error)}`,
-      true,
-    )
+    setImportMessage(`导入失败：${error instanceof Error ? error.message : String(error)}`, true)
   } finally {
     importing.value = false
   }

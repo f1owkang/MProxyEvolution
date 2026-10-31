@@ -17,6 +17,7 @@ import { debounce } from 'lodash'
 import ReconnectingWebSocket from 'reconnectingwebsocket'
 import { shallowRef } from 'vue'
 import './http'
+import { resolveBackendPassword } from './mproxy-session'
 
 export const fetchClashVersion = () => axios.get<{ version: string }>('/version')
 
@@ -130,7 +131,7 @@ export const createClashWebSocket = <T>(url: string, searchParams?: Record<strin
   const backend = activeBackend.value!
   const resurl = new URL(`${getUrlFromBackend(backend).replace('http', 'ws')}/${url}`)
 
-  resurl.searchParams.append('token', backend.password || '')
+  resurl.searchParams.append('token', resolveBackendPassword(backend))
 
   if (searchParams) {
     Object.entries(searchParams).forEach(([key, value]) => {
@@ -175,7 +176,7 @@ export const probeClashChannel = async (
     const res = await fetch(`${getUrlFromBackend(backend)}/version`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${backend.password}`,
+        Authorization: `Bearer ${resolveBackendPassword(backend)}`,
       },
       signal: controller.signal,
     })

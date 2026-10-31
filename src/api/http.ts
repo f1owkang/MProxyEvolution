@@ -4,6 +4,7 @@ import { activeBackend, activeUuid, backendManagerView, openBackendManager } fro
 import axios, { AxiosError } from 'axios'
 import { nextTick } from 'vue'
 import { daeBearer, dropDaeSession, ensureDaeSession, isDaePasswordMode } from './dae-auth'
+import { resolveBackendPassword } from './mproxy-session'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -19,7 +20,7 @@ axios.interceptors.request.use(async (config) => {
 
     const token = isDaePasswordMode(backend)
       ? await ensureDaeSession(backend).catch(() => '')
-      : backend.password
+      : resolveBackendPassword(backend)
 
     if (token) {
       config.headers['Authorization'] = 'Bearer ' + token

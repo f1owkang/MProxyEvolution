@@ -22,6 +22,7 @@
       window.ksu.enableInsets(true)
     }
   } catch (error) {
+    void error
     // 老版本管理器没有该接口
   }
   try {
@@ -31,6 +32,7 @@
     insetsLink.href = '/internal/insets.css'
     ;(document.head || document.documentElement).appendChild(insetsLink)
   } catch (error) {
+    void error
     // ignore
   }
 
@@ -43,6 +45,7 @@
     try {
       return storage.getItem(key)
     } catch (error) {
+      void error
       return null
     }
   }
@@ -52,6 +55,7 @@
       storage.setItem(key, value)
       return true
     } catch (error) {
+      void error
       return false
     }
   }
@@ -60,6 +64,7 @@
     try {
       return decodeURIComponent(value.replace(/\+/g, ' '))
     } catch (error) {
+      void error
       return value
     }
   }
@@ -138,18 +143,21 @@
 
       window.history.replaceState(window.history.state, document.title, url.toString())
     } catch (error) {
+      void error
       // ignore: replaceState is cosmetic, the token is already captured
     }
   }
 
-  var buildBackend = function (token) {
+  var buildBackend = function () {
     return {
       type: 'clash',
       protocol: window.location.protocol.replace(':', ''),
       host: window.location.hostname,
       port: window.location.port || '80',
       secondaryPath: '/api/mihomo',
-      password: token,
+      // 真实 token 只放 sessionStorage / window.__MPROXY_TOKEN__（AGENTS 约定），
+      // localStorage 的 api-list 保持空密码，请求时由 src/api/mproxy-session.ts 解析。
+      password: '',
       uuid: BACKEND_UUID,
       label: 'MihomoProxy Evolution',
     }
@@ -164,7 +172,7 @@
 
     // zashboard uses @vueuse/core `useStorage`. Object values (api-list) are
     // JSON-encoded, while string values (active-uuid) are stored raw.
-    safeSet(window.localStorage, API_LIST_KEY, JSON.stringify([buildBackend(token)]))
+    safeSet(window.localStorage, API_LIST_KEY, JSON.stringify([buildBackend()]))
     safeSet(window.localStorage, ACTIVE_UUID_KEY, BACKEND_UUID)
   }
 
@@ -188,6 +196,7 @@
   try {
     boot()
   } catch (error) {
+    void error
     // Never let boot failure block the panel.
     if (window.console && window.console.warn) {
       window.console.warn('[mproxy] boot failed', error)

@@ -27,7 +27,10 @@ export class MProxyApiError extends Error {
   readonly code: string
   readonly details: unknown
 
-  constructor(message: string, options: { status?: number; code?: string; details?: unknown } = {}) {
+  constructor(
+    message: string,
+    options: { status?: number; code?: string; details?: unknown } = {},
+  ) {
     super(message)
     this.name = 'MProxyApiError'
     this.status = options.status ?? 0
@@ -238,10 +241,31 @@ export type MProxySettings = {
 
 export type MProxySettingsPatch = Partial<MProxySettings['x']>
 
+// PATCH /api/mproxy/settings 返回 { ok, changed, settings }；settings 是扁平的
+// x-mproxy 设置值（不是 GET 的 { x: ... } 包装）。
+export type MProxySettingsPatchResponse = {
+  ok: boolean
+  changed: boolean
+  applied?: boolean
+  restarted?: boolean
+  warnings?: string[]
+  settings: MProxySettings['x']
+}
+
 export type MProxyAppsResponse = {
   mode: AppsMode
   apps: string[]
   tunEnabled: boolean
+}
+
+// PUT /api/mproxy/apps 返回操作结果，不包含 tunEnabled（如需请重新 GET）。
+export type MProxyAppsPutResponse = {
+  ok: boolean
+  applied: boolean
+  restarted: boolean
+  warnings?: string[]
+  mode: AppsMode
+  apps: string[]
 }
 
 export type MProxyProviderInput = {
@@ -251,9 +275,21 @@ export type MProxyProviderInput = {
   path?: string
 }
 
+export type MProxyProviderInfo = {
+  name: string
+  type?: string
+  url?: string
+  path?: string
+  interval?: number
+}
+
+// POST/DELETE /api/mproxy/providers 返回操作结果与当前 provider 列表。
 export type MProxyProviderResponse = {
-  ok?: boolean
-  name?: string
+  ok: boolean
+  applied?: boolean
+  restarted?: boolean
+  warnings?: string[]
+  providers: MProxyProviderInfo[]
 }
 
 export type DiagnosticsResponse = Record<string, unknown>
@@ -519,8 +555,10 @@ export const mproxyApi = {
     }),
 
   // 5.3 core / jobs / logs / backend / packages
-  startCore: () => request<{ ok: boolean; status: CoreStatus }>('/api/core/start', { method: 'POST' }),
-  stopCore: () => request<{ ok: boolean; status: CoreStatus }>('/api/core/stop', { method: 'POST' }),
+  startCore: () =>
+    request<{ ok: boolean; status: CoreStatus }>('/api/core/start', { method: 'POST' }),
+  stopCore: () =>
+    request<{ ok: boolean; status: CoreStatus }>('/api/core/stop', { method: 'POST' }),
   restartCore: () =>
     request<{ ok: boolean; status: CoreStatus }>('/api/core/restart', { method: 'POST' }),
   reloadCore: () =>
@@ -534,8 +572,7 @@ export const mproxyApi = {
       timeoutMs: 60_000,
     }),
   getJob: (jobId: string) => request<JobResponse>(`/api/jobs/${encodeURIComponent(jobId)}`),
-  getCoreLogs: (lines = 300) =>
-    request<LogLinesResponse>('/api/logs/core', { query: { lines } }),
+  getCoreLogs: (lines = 300) => request<LogLinesResponse>('/api/logs/core', { query: { lines } }),
   clearCoreLogs: () => request<{ ok: boolean }>('/api/logs/core/clear', { method: 'POST' }),
   getBackendLogs: (lines = 300) =>
     request<LogLinesResponse>('/api/logs/backend', { query: { lines } }),
@@ -547,14 +584,14 @@ export const mproxyApi = {
   // 5.4 MProxyEvolution page
   getSettings: () => request<MProxySettings>('/api/mproxy/settings'),
   patchSettings: (patch: MProxySettingsPatch) =>
-    request<MProxySettings>('/api/mproxy/settings', {
+    request<MProxySettingsPatchResponse>('/api/mproxy/settings', {
       method: 'PATCH',
       body: patch,
       timeoutMs: 120_000,
     }),
   getApps: () => request<MProxyAppsResponse>('/api/mproxy/apps'),
   putApps: (mode: AppsMode, apps: string[]) =>
-    request<MProxyAppsResponse>('/api/mproxy/apps', {
+    request<MProxyAppsPutResponse>('/api/mproxy/apps', {
       method: 'PUT',
       body: { mode, apps },
       timeoutMs: 120_000,
@@ -575,8 +612,7 @@ export const mproxyApi = {
     download('/api/mproxy/diagnostics', `mproxy-diagnostics-${timestampSuffix()}.json`),
 
   // 5.5 mihomo reverse proxy (zashboard's own traffic path)
-  getMihomoProviders: () =>
-    request<MihomoProvidersResponse>('/api/mihomo/providers/proxies'),
+  getMihomoProviders: () => request<MihomoProvidersResponse>('/api/mihomo/providers/proxies'),
   updateAllProviders: () =>
     request<unknown>('/api/mihomo/providers/proxies', {
       method: 'PUT',

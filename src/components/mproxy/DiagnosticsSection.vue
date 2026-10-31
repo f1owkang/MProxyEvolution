@@ -82,7 +82,9 @@
           class="bg-base-200 rounded-lg p-3"
         >
           <summary class="cursor-pointer text-xs font-medium">诊断详情</summary>
-          <pre class="scrollbar-thin mt-2 max-h-64 overflow-auto text-[11px] whitespace-pre-wrap">{{ diagnosticsText }}</pre>
+          <pre class="mt-2 max-h-64 scrollbar-thin overflow-auto text-[11px] whitespace-pre-wrap">{{
+            diagnosticsText
+          }}</pre>
         </details>
       </div>
     </SectionCard>
@@ -98,7 +100,8 @@
             href="https://wiki.metacubex.one/"
             target="_blank"
             rel="noreferrer"
-          >mihomo 配置文档</a>
+            >mihomo 配置文档</a
+          >
         </li>
         <li>
           <a
@@ -106,7 +109,8 @@
             href="https://kernelsu.org/"
             target="_blank"
             rel="noreferrer"
-          >KernelSU 官方文档</a>
+            >KernelSU 官方文档</a
+          >
         </li>
         <li>
           <a
@@ -114,7 +118,8 @@
             href="https://github.com/MetaCubeX/mihomo/releases"
             target="_blank"
             rel="noreferrer"
-          >mihomo 版本发布</a>
+            >mihomo 版本发布</a
+          >
         </li>
       </ul>
     </SectionCard>
@@ -126,7 +131,7 @@ import { mproxyApi, type DiagnosticsResponse, type MProxyStatus } from '@/api/mp
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { computed, onMounted, ref } from 'vue'
 
-const props = defineProps<{
+defineProps<{
   status: MProxyStatus | null
 }>()
 
@@ -199,10 +204,7 @@ const downloadDiagnostics = async () => {
     await mproxyApi.downloadDiagnostics()
     setMessage('诊断包已开始下载')
   } catch (error) {
-    setMessage(
-      `下载失败：${error instanceof Error ? error.message : String(error)}`,
-      'error',
-    )
+    setMessage(`下载失败：${error instanceof Error ? error.message : String(error)}`, 'error')
   } finally {
     downloading.value = false
   }
