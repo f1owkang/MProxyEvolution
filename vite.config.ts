@@ -3,7 +3,6 @@ import vueJsx from '@vitejs/plugin-vue-jsx'
 import { execSync } from 'child_process'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
-import { VitePWA } from 'vite-plugin-pwa'
 import { version } from './package.json'
 
 const getGitCommitId = (): string => {
@@ -34,55 +33,11 @@ export default defineConfig({
     __FONT__: JSON.stringify(font),
   },
   base: './',
-  plugins: [
-    vue(),
-    vueJsx(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'favicon-dark.svg'],
-      workbox: {
-        // The globe is lazy-loaded, but its local textures and bundled attribution must
-        // remain available after the first PWA install/update for offline cache reuse.
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webp,jpg,md}'],
-        // The main chunk sits at ~1.75 MiB — under Workbox's 2 MiB default, but not
-        // by enough to rely on. Keep the ceiling raised so it can't silently fall out
-        // of the precache (and stop working offline) the next time it grows a little.
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-      },
-      manifest: {
-        name: 'zashboard',
-        short_name: 'zashboard',
-        description: 'a dashboard using clash api',
-        theme_color: '#000000',
-        icons: [
-          {
-            src: './pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: './pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: './pwa-maskable-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-          {
-            src: './pwa-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-        ],
-      },
-    }),
-  ],
+  // MProxy: PWA/service worker disabled; panel is served by the local Go backend.
+  plugins: [vue(), vueJsx()],
+  build: {
+    outDir: 'web/dist',
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

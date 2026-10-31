@@ -173,8 +173,8 @@ useKeyboard()
 
 .app-toast-region {
   position: fixed;
-  top: calc(0.75rem + env(safe-area-inset-top, 0px));
-  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  top: calc(0.75rem + var(--safe-area-inset-top, 0px));
+  right: calc(0.75rem + var(--safe-area-inset-right, 0px));
   z-index: 100000;
   display: flex;
   width: min(24rem, calc(100vw - 1.5rem));
@@ -185,8 +185,8 @@ useKeyboard()
 
 @media (min-width: 768px) {
   .app-toast-region {
-    top: calc(2.75rem + env(safe-area-inset-top, 0px));
-    right: calc(1rem + env(safe-area-inset-right, 0px));
+    top: calc(2.75rem + var(--safe-area-inset-top, 0px));
+    right: calc(1rem + var(--safe-area-inset-right, 0px));
   }
 }
 

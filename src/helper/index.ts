@@ -95,6 +95,7 @@ export const getColorForLatency = (latency: number) => {
 export const renderRoutes = computed(() =>
   Object.values(ROUTE_NAME).filter((r) => {
     if (r === ROUTE_NAME.setup) return false
+    if (r === ROUTE_NAME.mproxy) return false
     if (!splitOverviewPage.value && r === ROUTE_NAME.overview) return false
     return true
   }),

@@ -76,7 +76,7 @@ const clashCaps = computed<Caps>(() => {
   return {
     coreUpgrade: mihomoOrForkCore,
     coreRestart: mihomoOrForkCore,
-    dashboardUpgrade: mihomoOrForkCore,
+    dashboardUpgrade: false,
     reloadConfigs: mihomoOrForkCore,
     updateConfigs: mihomoOrForkCore,
     updateGeoDatabase: mihomoOrForkCore,
@@ -153,3 +153,4 @@ export const can = (cap: Cap): boolean => {
 
   return soft.value[cap] === true
 }
+

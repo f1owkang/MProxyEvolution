@@ -6,6 +6,7 @@ import { activeBackend } from '@/store/setup'
 import ConnectionsPage from '@/views/ConnectionsPage.vue'
 import HomePage from '@/views/HomePage.vue'
 import LogsPage from '@/views/LogsPage.vue'
+import MProxyPage from '@/views/MProxyPage.vue'
 import OverviewPage from '@/views/OverviewPage.vue'
 import ProxiesPage from '@/views/ProxiesPage.vue'
 import RulesPage from '@/views/RulesPage.vue'
@@ -45,6 +46,11 @@ const childrenRouter = [
     path: 'settings',
     name: ROUTE_NAME.settings,
     component: SettingsPage,
+  },
+  {
+    path: 'mproxy',
+    name: ROUTE_NAME.mproxy,
+    component: MProxyPage,
   },
 ]
 

@@ -4,7 +4,7 @@ import MetacubexLogo from '@/assets/images/metacubex.jpg'
 import { MIHOMO, MIHOMO_CHANNEL } from '@/constant'
 import { fetchWithLocalCache } from '@/helper/cache'
 import { getRequestErrorMessage } from '@/helper/request-error'
-import { autoUpgradeCore, autoUpgradeDashboard, checkUpgradeCore } from '@/store/settings'
+import { autoUpgradeCore, checkUpgradeCore } from '@/store/settings'
 import { activeBackend } from '@/store/setup'
 import type { Backend } from '@/types'
 import { computed, nextTick, ref } from 'vue'
@@ -146,14 +146,9 @@ const fetchIsCoreUpdateAvailable = async () => {
 }
 
 export const checkUIUpdate = async () => {
-  const { tag_name } = await fetchWithLocalCache<{ tag_name: string }>(
-    'https://api.github.com/repos/Zephyruso/zashboard/releases/latest',
-    zashboardVersion.value,
-  )
-
-  isUIUpdateAvailable.value = Boolean(tag_name && tag_name !== `v${zashboardVersion.value}`)
-
-  if (isUIUpdateAvailable.value && autoUpgradeDashboard.value) {
-    upgradeUI().catch(() => {})
-  }
+  // MProxy: 面板随模块一起打包/更新，不使用 mihomo 的 external-ui 更新通道。
+  isUIUpdateAvailable.value = false
 }
+
+
+

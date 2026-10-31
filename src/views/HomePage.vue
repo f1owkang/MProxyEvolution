@@ -35,7 +35,7 @@
           <nav
             class="tab-bar absolute right-3 left-3 z-30"
             :style="{
-              bottom: 'calc(var(--spacing) * 2 + env(safe-area-inset-bottom))',
+              bottom: 'calc(var(--spacing) * 2 + var(--safe-area-inset-bottom, 0px))',
               '--tab-count': renderRoutes.length,
               '--tab-index': Math.max(renderRoutes.indexOf(route.name as ROUTE_NAME), 0),
             }"
@@ -72,7 +72,7 @@
                 rgba(0, 0, 0, 0.01) 85%,
                 rgba(0, 0, 0, 0) 100%
               );
-              height: env(safe-area-inset-bottom);
+              height: var(--safe-area-inset-bottom, 0px);
             "
           ></div>
         </template>

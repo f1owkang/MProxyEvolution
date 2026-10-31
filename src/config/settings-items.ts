@@ -1,5 +1,5 @@
 import { ROUTE_ICON_MAP, ROUTE_NAME, SETTINGS_MENU_KEY } from '@/constant'
-import { HomeIcon, ServerIcon } from '@heroicons/vue/24/outline'
+import { CloudArrowDownIcon, FunnelIcon, HomeIcon, ServerIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import type { Component } from 'vue'
 
 export type SettingsCategoryItem = {
@@ -19,6 +19,9 @@ export type SettingsCategory = {
 }
 
 export const DEFAULT_SETTINGS_MENU_ORDER = [
+  SETTINGS_MENU_KEY.module,
+  SETTINGS_MENU_KEY.subscription,
+  SETTINGS_MENU_KEY.routing,
   SETTINGS_MENU_KEY.backend,
   SETTINGS_MENU_KEY.general,
   SETTINGS_MENU_KEY.overview,
@@ -32,9 +35,44 @@ export const SETTINGS_MENU_LABELS: Record<SETTINGS_MENU_KEY, string> = {
   [SETTINGS_MENU_KEY.proxies]: 'settingsMenuProxies',
   [SETTINGS_MENU_KEY.connections]: 'settingsMenuConnections',
   [SETTINGS_MENU_KEY.overview]: 'settingsMenuOverview',
+  [SETTINGS_MENU_KEY.module]: 'settingsMenuModule',
+  [SETTINGS_MENU_KEY.subscription]: 'settingsMenuSubscription',
+  [SETTINGS_MENU_KEY.routing]: 'settingsMenuRouting',
 }
 
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
+  {
+    key: SETTINGS_MENU_KEY.subscription,
+    label: 'settingsMenuSubscription',
+    description: 'settingsDescriptionSubscription',
+    icon: CloudArrowDownIcon,
+    items: [
+      { key: `${SETTINGS_MENU_KEY.subscription}.import`, label: 'mproxySubscription', section: 'settingsSectionModuleSubscription' },
+      { key: `${SETTINGS_MENU_KEY.subscription}.providers`, label: 'settingsMenuSubscription', section: 'settingsSectionModuleSubscription' },
+    ],
+  },
+  {
+    key: SETTINGS_MENU_KEY.routing,
+    label: 'settingsMenuRouting',
+    description: 'settingsDescriptionRouting',
+    icon: FunnelIcon,
+    items: [
+      { key: `${SETTINGS_MENU_KEY.routing}.apps`, label: 'mproxyApps', section: 'settingsSectionModuleApps' },
+    ],
+  },
+  {
+    key: SETTINGS_MENU_KEY.module,
+    label: 'settingsMenuModule',
+    description: 'settingsDescriptionModule',
+    icon: ShieldCheckIcon,
+    items: [
+      { key: `${SETTINGS_MENU_KEY.module}.core`, label: 'mproxyCore', section: 'settingsSectionModuleCore' },
+      { key: `${SETTINGS_MENU_KEY.module}.config`, label: 'mproxyConfig', section: 'settingsSectionModuleConfig' },
+      { key: `${SETTINGS_MENU_KEY.module}.subscription`, label: 'mproxySubscription', section: 'settingsSectionModuleSubscription' },
+      { key: `${SETTINGS_MENU_KEY.module}.apps`, label: 'mproxyApps', section: 'settingsSectionModuleApps' },
+      { key: `${SETTINGS_MENU_KEY.module}.diagnostics`, label: 'mproxyDiagnostics', section: 'settingsSectionModuleDiagnostics' },
+    ],
+  },
   {
     key: SETTINGS_MENU_KEY.backend,
     label: 'backendSettings',
@@ -463,3 +501,4 @@ function keyMapByLabel(categoryKey: SETTINGS_MENU_KEY): Record<string, string> {
   const category = SETTINGS_CATEGORIES.find((c) => c.key === categoryKey)
   return Object.fromEntries((category?.items ?? []).map((i) => [i.label, i.key]))
 }
+

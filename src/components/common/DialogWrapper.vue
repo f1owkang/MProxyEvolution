@@ -57,8 +57,8 @@
             class="min-h-0 overflow-y-auto max-md:flex-1 md:max-h-[90dvh]"
             :class="
               noPadding
-                ? 'p-0 max-md:pb-[env(safe-area-inset-bottom)]'
-                : 'p-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]'
+                ? 'p-0 max-md:pb-[var(--safe-area-inset-bottom, 0px)]'
+                : 'p-4 max-md:pb-[calc(1rem+var(--safe-area-inset-bottom, 0px))]'
             "
           >
             <slot />

@@ -2,7 +2,7 @@
   <Transition name="backend-switch">
     <div
       v-if="visible && activeBackend"
-      class="pointer-events-none fixed inset-x-0 top-0 z-[100001] flex justify-end pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pr-[calc(0.75rem+env(safe-area-inset-right,0px))] pl-3"
+      class="pointer-events-none fixed inset-x-0 top-0 z-[100001] flex justify-end pt-[calc(0.75rem+var(--safe-area-inset-top, 0px))] pr-[calc(0.75rem+var(--safe-area-inset-right, 0px))] pl-3"
     >
       <div
         v-if="isMiddleScreen"
