@@ -9,7 +9,7 @@
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <h1 class="text-base leading-6 font-semibold">
-                MihomoProxy Evolution
+                {{ t('mproxy') }}
               </h1>
               <span
                 class="badge badge-sm"
@@ -19,7 +19,7 @@
               </span>
             </div>
             <p class="text-base-content/55 mt-1 text-xs leading-4">
-              内核、配置与分流统一由本地后端管理，只保留一份 config.yaml。
+              {{ t('mproxyPageSubtitle') }}
             </p>
           </div>
           <button
@@ -27,7 +27,7 @@
             :disabled="loading"
             @click="loadAll"
           >
-            {{ loading ? '刷新中…' : '刷新' }}
+            {{ loading ? t('mproxyRefreshing') : t('mproxyRefresh') }}
           </button>
         </div>
 
@@ -55,7 +55,7 @@
           class="btn btn-ghost btn-xs"
           @click="loadAll"
         >
-          重试
+          {{ t('mproxyRetry') }}
         </button>
       </div>
 
@@ -95,12 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  hasMProxyToken,
-  mproxyApi,
-  type MProxySettings,
-  type MProxyStatus,
-} from '@/api/mproxy'
+import { hasMProxyToken, mproxyApi, type MProxySettings, type MProxyStatus } from '@/api/mproxy'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import AppsSection from '@/components/mproxy/AppsSection.vue'
 import ConfigSection from '@/components/mproxy/ConfigSection.vue'
@@ -126,14 +121,14 @@ const tabs = computed(() => [
   { value: 'core', label: t('mproxyCore') },
   { value: 'config', label: t('mproxyConfig') },
   { value: 'subscription', label: t('mproxySubscription') },
-  { value: 'apps', label: '分流' },
+  { value: 'apps', label: t('mproxyApps') },
   { value: 'diagnostics', label: t('mproxyDiagnostics') },
 ])
 
 const statusText = computed(() => {
-  if (!status.value) return '未连接'
-  if (!status.value.core.installed) return '未安装内核'
-  return status.value.core.running ? '运行中' : '已停止'
+  if (!status.value) return t('mproxyStatusOffline')
+  if (!status.value.core.installed) return t('mproxyStatusNotInstalled')
+  return status.value.core.running ? t('mproxyStatusRunning') : t('mproxyStatusStopped')
 })
 
 const statusBadgeClass = computed(() => {
@@ -149,14 +144,13 @@ const needsNodes = computed(() => {
   return summary.proxyCount === 0 && summary.providerCount === 0
 })
 
-const showOnboarding = computed(
-  () =>
-    Boolean(
-      status.value &&
-        settings.value &&
-        !settings.value.x.onboarded &&
-        (needsCore.value || needsNodes.value),
-    ),
+const showOnboarding = computed(() =>
+  Boolean(
+    status.value &&
+    settings.value &&
+    !settings.value.x.onboarded &&
+    (needsCore.value || needsNodes.value),
+  ),
 )
 
 const describeError = (value: unknown) => {
@@ -170,7 +164,7 @@ const loadStatus = async () => {
     error.value = ''
     hasToken.value = hasMProxyToken()
   } catch (e) {
-    error.value = `无法连接 MihomoProxy Evolution 后端：${describeError(e)}`
+    error.value = t('mproxyBackendConnectError', { error: describeError(e) })
   }
 }
 

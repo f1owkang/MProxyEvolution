@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-col gap-3">
     <SectionCard
-      title="内核"
-      description="安装 / 更新 mihomo 内核，启动或停止代理。"
+      :title="t('mproxyCore')"
+      :description="t('mproxyCoreDesc')"
     >
       <template #actions>
         <button
@@ -10,7 +10,7 @@
           :disabled="checking"
           @click="checkUpdate"
         >
-          {{ checking ? '检查中…' : '检查更新' }}
+          {{ checking ? t('mproxyChecking') : t('mproxyCheckUpdate') }}
         </button>
         <button
           v-if="!status?.core.installed"
@@ -18,7 +18,7 @@
           :disabled="busy"
           @click="installOrUpdate"
         >
-          安装内核
+          {{ t('mproxyCoreInstall') }}
         </button>
         <button
           v-else-if="updateInfo?.available"
@@ -26,13 +26,13 @@
           :disabled="busy"
           @click="installOrUpdate"
         >
-          更新到 {{ updateInfo?.latest }}
+          {{ t('mproxyCoreUpdateTo', { version: updateInfo?.latest }) }}
         </button>
       </template>
 
       <div class="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">状态</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelStatus') }}</div>
           <div class="mt-0.5 flex items-center gap-1.5 font-medium">
             <span
               :class="[
@@ -40,47 +40,55 @@
                 status?.core.running ? 'bg-success' : 'bg-base-content/30',
               ]"
             />
-            {{ status ? (status.core.running ? '运行中' : '已停止') : '未知' }}
+            {{
+              status
+                ? status.core.running
+                  ? t('mproxyStatusRunning')
+                  : t('mproxyStatusStopped')
+                : t('mproxyUnknown')
+            }}
           </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">内核版本</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelCoreVersion') }}</div>
           <div class="mt-0.5 truncate font-medium">
-            {{ settings?.coreVersion || status?.core.version || '未安装' }}
+            {{ settings?.coreVersion || status?.core.version || t('mproxyNotInstalled') }}
           </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">架构 / ABI</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelArch') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ status?.system.arch || '-' }} / {{ settings?.abi || status?.system.abi || '-' }}
           </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">控制器</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelController') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ status ? status.core.controller.host + ':' + status.core.controller.port : '-' }}
           </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">运行时长</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelUptime') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ formatUptime(status?.core.uptimeSec) }}
           </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">自动重启</div>
-          <div class="mt-0.5 truncate font-medium">{{ status?.core.restarts ?? 0 }} 次</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelRestarts') }}</div>
+          <div class="mt-0.5 truncate font-medium">
+            {{ t('mproxyTimes', { n: status?.core.restarts ?? 0 }) }}
+          </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
-          <div class="text-base-content/50 text-[11px]">更新通道</div>
+          <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelChannel') }}</div>
           <div class="mt-0.5 flex items-center gap-2 font-medium">
             <select
               class="select select-xs"
               :value="settings?.x.updateChannel ?? 'stable'"
               @change="changeChannel(($event.target as HTMLSelectElement).value)"
             >
-              <option value="stable">稳定版</option>
-              <option value="alpha">预览版</option>
+              <option value="stable">{{ t('mproxyChannelStable') }}</option>
+              <option value="alpha">{{ t('mproxyChannelAlpha') }}</option>
             </select>
           </div>
         </div>
@@ -90,7 +98,7 @@
         v-if="status?.core.lastExit"
         class="bg-base-200 mt-2 rounded-lg px-3 py-2.5"
       >
-        <div class="text-base-content/50 text-[11px]">上次内核退出</div>
+        <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelLastExit') }}</div>
         <div class="mt-0.5 font-mono text-xs break-all">{{ status.core.lastExit }}</div>
       </div>
 
@@ -98,10 +106,8 @@
         class="bg-base-200 mt-3 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
       >
         <span class="text-sm">
-          开机自启
-          <span class="text-base-content/50 block text-xs"
-            >设备启动后自动拉起 MihomoProxy Evolution 与内核</span
-          >
+          {{ t('mproxyAutoStart') }}
+          <span class="text-base-content/50 block text-xs">{{ t('mproxyAutoStartDesc') }}</span>
         </span>
         <input
           type="checkbox"
@@ -114,11 +120,8 @@
 
       <div class="bg-base-200 mt-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5">
         <span class="text-sm">
-          Private DNS
-          <span class="text-base-content/50 block text-xs"
-            >TUN 运行时临时关闭系统 Private DNS，避免 DoT 绕过 fake-ip；keep
-            则保持系统设置不变</span
-          >
+          {{ t('mproxyPrivateDNS') }}
+          <span class="text-base-content/50 block text-xs">{{ t('mproxyPrivateDNSDesc') }}</span>
         </span>
         <select
           class="select select-xs"
@@ -126,17 +129,33 @@
           :disabled="busy || !settings"
           @change="changePrivateDNS(($event.target as HTMLSelectElement).value)"
         >
-          <option value="auto">自动关闭（推荐）</option>
-          <option value="keep">保持系统设置</option>
+          <option value="auto">{{ t('mproxyPrivateDNSAuto') }}</option>
+          <option value="keep">{{ t('mproxyPrivateDNSKeep') }}</option>
         </select>
       </div>
+
+      <label
+        class="bg-base-200 mt-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
+      >
+        <span class="text-sm">
+          {{ t('mproxyIPv6') }}
+          <span class="text-base-content/50 block text-xs">{{ t('mproxyIPv6Desc') }}</span>
+        </span>
+        <input
+          type="checkbox"
+          class="toggle toggle-sm"
+          :checked="settings?.x.ipv6 ?? false"
+          :disabled="busy || !settings"
+          @change="toggleIPv6(($event.target as HTMLInputElement).checked)"
+        />
+      </label>
 
       <div
         v-if="job"
         class="mt-3"
       >
         <div class="mb-1 flex items-center justify-between text-xs">
-          <span>{{ job.message || job.type || '任务进行中' }}</span>
+          <span>{{ job.message || job.type || t('mproxyJobRunning') }}</span>
           <span>{{ Math.round(job.progress || 0) }}%</span>
         </div>
         <progress
@@ -159,35 +178,35 @@
           :disabled="busy || !status?.core.installed || status?.core.running"
           @click="runAction('start')"
         >
-          启动
+          {{ t('mproxyStart') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="busy || !status?.core.running"
           @click="runAction('stop')"
         >
-          停止
+          {{ t('mproxyStop') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="busy || !status?.core.installed"
           @click="runAction('restart')"
         >
-          重启内核
+          {{ t('mproxyRestart') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="busy || !status?.core.running"
           @click="runAction('reload')"
         >
-          重载配置
+          {{ t('mproxyReload') }}
         </button>
       </div>
     </SectionCard>
 
     <SectionCard
-      title="内核日志"
-      description="mihomo 运行日志尾部，排查启动失败时优先查看。"
+      :title="t('mproxyCoreLogs')"
+      :description="t('mproxyCoreLogsDesc')"
     >
       <LogTail
         source="core"
@@ -211,6 +230,9 @@ import {
 import LogTail from '@/components/mproxy/LogTail.vue'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   status: MProxyStatus | null
@@ -233,9 +255,9 @@ const formatUptime = (seconds?: number) => {
   const day = Math.floor(total / 86400)
   const hour = Math.floor((total % 86400) / 3600)
   const minute = Math.floor((total % 3600) / 60)
-  if (day > 0) return `${day} 天 ${hour} 小时`
-  if (hour > 0) return `${hour} 小时 ${minute} 分`
-  return `${minute} 分`
+  if (day > 0) return t('mproxyUptimeDays', { days: day, hours: hour })
+  if (hour > 0) return t('mproxyUptimeHours', { hours: hour, minutes: minute })
+  return t('mproxyUptimeMinutes', { minutes: minute })
 }
 
 const channel = (): UpdateChannel => props.settings?.x.updateChannel ?? 'stable'
@@ -258,7 +280,7 @@ const runJob = async (jobId: string) => {
     type: 'core-update',
     state: 'running',
     progress: 0,
-    message: '准备中…',
+    message: t('mproxyJobPreparing'),
     error: '',
     startedAt: new Date().toISOString(),
     finishedAt: '',
@@ -268,7 +290,7 @@ const runJob = async (jobId: string) => {
   })
   job.value = finished
   if (finished.state === 'error') {
-    throw new Error(finished.error || '任务失败')
+    throw new Error(finished.error || t('mproxyJobFailed'))
   }
   updateInfo.value = null
 }
@@ -329,6 +351,15 @@ const toggleAutoStart = async (value: boolean) => {
 const changePrivateDNS = async (value: string) => {
   try {
     await mproxyApi.patchSettings({ privateDNS: value === 'keep' ? 'keep' : 'auto' })
+    emit('changed')
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+const toggleIPv6 = async (value: boolean) => {
+  try {
+    await mproxyApi.patchSettings({ ipv6: value })
     emit('changed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)

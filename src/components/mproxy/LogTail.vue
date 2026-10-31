@@ -2,7 +2,8 @@
   <div>
     <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
       <span class="text-base-content/50 text-xs">
-        最近 {{ lines }} 行<template v-if="updatedAt"> · {{ updatedAt }}</template>
+        {{ t('mproxyLogsRecent', { lines }) }}
+        <template v-if="updatedAt"> · {{ updatedAt }}</template>
       </span>
       <div class="flex items-center gap-1">
         <button
@@ -10,7 +11,7 @@
           :disabled="loading"
           @click="refresh"
         >
-          {{ loading ? '读取中…' : '刷新' }}
+          {{ loading ? t('mproxyRefreshing') : t('mproxyRefresh') }}
         </button>
         <button
           v-if="clearable"
@@ -18,26 +19,29 @@
           :disabled="loading || !content"
           @click="clear"
         >
-          清空
+          {{ t('mproxyClear') }}
         </button>
         <button
           class="btn btn-ghost btn-xs"
           :disabled="!content"
           @click="copy"
         >
-          {{ copied ? '已复制' : '复制' }}
+          {{ copied ? t('mproxyCopied') : t('mproxyCopy') }}
         </button>
       </div>
     </div>
     <pre
-      class="bg-base-200 scrollbar-thin max-h-64 overflow-auto rounded-lg p-3 text-[11px] leading-4 whitespace-pre-wrap"
-    >{{ content || emptyText }}</pre>
+      class="bg-base-200 max-h-64 scrollbar-thin overflow-auto rounded-lg p-3 text-[11px] leading-4 whitespace-pre-wrap"
+      >{{ content || t('mproxyLogsEmpty') }}</pre>
   </div>
 </template>
 
 <script setup lang="ts">
 import { mproxyApi, normalizeLogLines } from '@/api/mproxy'
 import { onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = withDefaults(
   defineProps<{
@@ -58,7 +62,6 @@ const content = ref('')
 const loading = ref(false)
 const copied = ref(false)
 const updatedAt = ref('')
-const emptyText = '暂无日志'
 let timer: ReturnType<typeof setInterval> | undefined
 
 const refresh = async () => {
@@ -71,7 +74,9 @@ const refresh = async () => {
     content.value = normalizeLogLines(response).join('\n').trimEnd()
     updatedAt.value = new Date().toLocaleTimeString()
   } catch (error) {
-    content.value = `读取日志失败：${error instanceof Error ? error.message : String(error)}`
+    content.value = t('mproxyLogsReadError', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   } finally {
     loading.value = false
   }
@@ -84,7 +89,9 @@ const clear = async () => {
     content.value = ''
     updatedAt.value = new Date().toLocaleTimeString()
   } catch (error) {
-    content.value = `清空日志失败：${error instanceof Error ? error.message : String(error)}`
+    content.value = t('mproxyLogsClearError', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

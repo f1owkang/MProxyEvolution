@@ -9,7 +9,7 @@
         class="btn btn-ghost btn-xs"
         @click="reload"
       >
-        重试
+        {{ t('mproxyRetry') }}
       </button>
     </div>
 
@@ -27,6 +27,9 @@ import { mproxyApi, type MProxySettings, type MProxyStatus } from '@/api/mproxy'
 import CoreSection from '@/components/mproxy/CoreSection.vue'
 import DiagnosticsSection from '@/components/mproxy/DiagnosticsSection.vue'
 import { onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const status = ref<MProxyStatus | null>(null)
 const settings = ref<MProxySettings | null>(null)
@@ -37,7 +40,9 @@ const load = async () => {
     status.value = await mproxyApi.status()
     error.value = ''
   } catch (e) {
-    error.value = `无法连接 MihomoProxy Evolution 后端：${e instanceof Error ? e.message : String(e)}`
+    error.value = t('mproxyBackendConnectError', {
+      error: e instanceof Error ? e.message : String(e),
+    })
     return
   }
   try {

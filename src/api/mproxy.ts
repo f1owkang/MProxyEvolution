@@ -237,6 +237,8 @@ export type MProxySettings = {
     onboarded: boolean
     /** Private DNS 策略：auto=TUN 运行时临时关闭；keep=不修改系统设置（旧后端可能缺失）。 */
     privateDNS?: 'auto' | 'keep'
+    /** IPv6 开关：同步 mihomo 顶层 ipv6 与 dns.ipv6（旧后端可能缺失）。 */
+    ipv6?: boolean
   }
   coreVersion: string
   abi: string

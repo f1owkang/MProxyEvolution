@@ -1,53 +1,59 @@
 <template>
   <div class="flex flex-col gap-3">
     <SectionCard
-      title="诊断"
-      description="快速定位后端与内核状态，必要时下载诊断包反馈问题。"
+      :title="t('mproxyDiagnostics')"
+      :description="t('mproxyDiagnosticsDesc')"
     >
       <div class="grid grid-cols-1 gap-2 text-sm">
         <div class="bg-base-200 flex items-center justify-between gap-2 rounded-lg px-3 py-2.5">
           <div class="min-w-0">
-            <div class="text-base-content/50 text-[11px]">面板地址</div>
-            <div class="truncate font-mono text-xs">{{ panelUrl || '未获取' }}</div>
+            <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelPanelUrl') }}</div>
+            <div class="truncate font-mono text-xs">
+              {{ panelUrl || t('mproxyNotObtained') }}
+            </div>
           </div>
           <button
             class="btn btn-ghost btn-xs"
             :disabled="!panelUrl"
             @click="copy(panelUrl)"
           >
-            复制
+            {{ t('mproxyCopy') }}
           </button>
         </div>
 
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <div class="bg-base-200 rounded-lg p-3">
-            <div class="text-base-content/50 text-[11px]">后端版本</div>
+            <div class="text-base-content/50 text-[11px]">
+              {{ t('mproxyLabelBackendVersion') }}
+            </div>
             <div class="mt-0.5 truncate font-medium">{{ status?.backend.version || '-' }}</div>
           </div>
           <div class="bg-base-200 rounded-lg p-3">
-            <div class="text-base-content/50 text-[11px]">设备</div>
+            <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelDevice') }}</div>
             <div class="mt-0.5 truncate font-medium">
               {{ status?.system.model || '-' }}
             </div>
           </div>
           <div class="bg-base-200 rounded-lg p-3">
-            <div class="text-base-content/50 text-[11px]">Android / 内核</div>
+            <div class="text-base-content/50 text-[11px]">
+              {{ t('mproxyLabelAndroidKernel') }}
+            </div>
             <div class="mt-0.5 truncate font-medium">
               {{ status?.system.android || '-' }}
             </div>
           </div>
           <div class="bg-base-200 rounded-lg p-3">
-            <div class="text-base-content/50 text-[11px]">CPU 架构</div>
+            <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelCpuArch') }}</div>
             <div class="mt-0.5 truncate font-medium">{{ status?.system.arch || '-' }}</div>
           </div>
           <div class="bg-base-200 rounded-lg p-3">
-            <div class="text-base-content/50 text-[11px]">内存</div>
+            <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelMemory') }}</div>
             <div class="mt-0.5 truncate font-medium">
               {{ formatBytes(status?.system.memFree) }} / {{ formatBytes(status?.system.memTotal) }}
             </div>
           </div>
           <div class="bg-base-200 rounded-lg p-3">
-            <div class="text-base-content/50 text-[11px]">数据目录</div>
+            <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelDataDir') }}</div>
             <div class="mt-0.5 truncate font-medium">{{ status?.backend.dataDir || '-' }}</div>
           </div>
         </div>
@@ -58,14 +64,14 @@
             :disabled="downloading"
             @click="downloadDiagnostics"
           >
-            {{ downloading ? '打包中…' : '下载诊断包' }}
+            {{ downloading ? t('mproxyDiagnosticsPacking') : t('mproxyDownloadDiagnostics') }}
           </button>
           <button
             class="btn btn-sm"
             :disabled="loading"
             @click="loadDiagnostics"
           >
-            {{ loading ? '读取中…' : '刷新诊断信息' }}
+            {{ loading ? t('mproxyDiagnosticsReading') : t('mproxyRefreshDiagnostics') }}
           </button>
         </div>
 
@@ -103,7 +109,9 @@
           v-if="diagnostics"
           class="bg-base-200 rounded-lg p-3"
         >
-          <summary class="cursor-pointer text-xs font-medium">诊断详情</summary>
+          <summary class="cursor-pointer text-xs font-medium">
+            {{ t('mproxyDiagnosticsDetails') }}
+          </summary>
           <pre class="mt-2 max-h-64 scrollbar-thin overflow-auto text-[11px] whitespace-pre-wrap">{{
             diagnosticsText
           }}</pre>
@@ -112,8 +120,8 @@
     </SectionCard>
 
     <SectionCard
-      title="文档与帮助"
-      description="MihomoProxy Evolution 只维护一份 config.yaml，所有设置最终都会写回该文件。"
+      :title="t('mproxyDocsTitle')"
+      :description="t('mproxyDocsDesc')"
     >
       <ul class="list-disc space-y-1.5 pl-5 text-sm">
         <li>
@@ -122,7 +130,7 @@
             href="https://wiki.metacubex.one/"
             target="_blank"
             rel="noreferrer"
-            >mihomo 配置文档</a
+            >{{ t('mproxyDocsMihomoConfig') }}</a
           >
         </li>
         <li>
@@ -131,7 +139,7 @@
             href="https://kernelsu.org/"
             target="_blank"
             rel="noreferrer"
-            >KernelSU 官方文档</a
+            >{{ t('mproxyDocsKernelSU') }}</a
           >
         </li>
         <li>
@@ -140,7 +148,7 @@
             href="https://github.com/MetaCubeX/mihomo/releases"
             target="_blank"
             rel="noreferrer"
-            >mihomo 版本发布</a
+            >{{ t('mproxyDocsMihomoReleases') }}</a
           >
         </li>
       </ul>
@@ -152,6 +160,9 @@
 import { mproxyApi, type DiagnosticsResponse, type MProxyStatus } from '@/api/mproxy'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineProps<{
   status: MProxyStatus | null
@@ -191,9 +202,9 @@ const copy = async (text: string) => {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
-    setMessage('已复制到剪贴板')
+    setMessage(t('mproxyDiagnosticsCopied'))
   } catch {
-    setMessage('复制失败，请长按手动复制', 'error')
+    setMessage(t('mproxyCopyFailed'), 'error')
   }
 }
 
@@ -212,7 +223,9 @@ const loadDiagnostics = async () => {
     diagnostics.value = await mproxyApi.getDiagnostics()
   } catch (error) {
     setMessage(
-      `读取诊断信息失败：${error instanceof Error ? error.message : String(error)}`,
+      t('mproxyDiagnosticsReadError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
       'error',
     )
   } finally {
@@ -224,9 +237,14 @@ const downloadDiagnostics = async () => {
   downloading.value = true
   try {
     await mproxyApi.downloadDiagnostics()
-    setMessage('诊断包已开始下载')
+    setMessage(t('mproxyDiagnosticsDownloadStarted'))
   } catch (error) {
-    setMessage(`下载失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyDiagnosticsDownloadError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     downloading.value = false
   }

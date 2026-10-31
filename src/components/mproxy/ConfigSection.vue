@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-col gap-3">
     <SectionCard
-      title="配置"
-      description="唯一配置文件 config.yaml。修改后先校验，再保存并应用。"
+      :title="t('mproxyConfig')"
+      :description="t('mproxyConfigDesc')"
     >
       <template #actions>
         <button
@@ -10,42 +10,46 @@
           :disabled="loading"
           @click="load"
         >
-          {{ loading ? '加载中…' : '重新加载' }}
+          {{ loading ? t('mproxyLoading') : t('mproxyReloadConfig') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="saving || !yamlText"
           @click="validate"
         >
-          校验
+          {{ t('mproxyValidate') }}
         </button>
         <button
           class="btn btn-primary btn-sm"
           :disabled="saving || !yamlText"
           @click="saveAndApply"
         >
-          {{ saving ? '应用中…' : '保存并应用' }}
+          {{ saving ? t('mproxyApplying') : t('mproxySaveApply') }}
         </button>
       </template>
 
-      <div class="meta-row text-base-content/55 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-        <span>路径：{{ config?.path || status?.config.path || '-' }}</span>
+      <div
+        class="meta-row text-base-content/55 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs"
+      >
+        <span>{{ t('mproxyLabelPath') }}：{{ config?.path || status?.config.path || '-' }}</span>
         <span>
-          有效性：
+          {{ t('mproxyLabelValid') }}：
           <span :class="config?.valid ? 'text-success' : 'text-error'">
-            {{ config?.valid ? '通过' : '未通过' }}
+            {{ config?.valid ? t('mproxyValidPass') : t('mproxyValidFail') }}
           </span>
         </span>
-        <span>大小：{{ prettySize(status?.config.size) }}</span>
-        <span v-if="config?.modifiedAt">更新于 {{ formatTime(config.modifiedAt) }}</span>
+        <span>{{ t('mproxyLabelSize') }}：{{ prettySize(status?.config.size) }}</span>
+        <span v-if="config?.modifiedAt">{{
+          t('mproxyUpdatedAt', { time: formatTime(config.modifiedAt) })
+        }}</span>
       </div>
 
       <textarea
         v-model="yamlText"
-        class="textarea scrollbar-thin w-full font-mono text-xs leading-5"
+        class="textarea w-full scrollbar-thin font-mono text-xs leading-5"
         rows="18"
         spellcheck="false"
-        placeholder="正在加载配置…"
+        :placeholder="t('mproxyConfigLoadingPlaceholder')"
         :disabled="loading"
       />
 
@@ -57,12 +61,12 @@
           class="text-xs font-medium"
           :class="validation.ok ? 'text-success' : 'text-error'"
         >
-          {{ validation.ok ? '校验通过' : '校验失败' }}
+          {{ validation.ok ? t('mproxyValidationOk') : t('mproxyValidationFail') }}
         </div>
         <pre
           v-if="validation.output"
           class="bg-base-200 mt-1 max-h-40 overflow-auto rounded-lg p-2 text-[11px] whitespace-pre-wrap"
-        >{{ validation.output }}</pre>
+          >{{ validation.output }}</pre>
       </div>
 
       <div
@@ -79,28 +83,28 @@
           :disabled="busy"
           @click="exportConfig"
         >
-          导出配置
+          {{ t('mproxyExportConfig') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="busy"
           @click="backupConfig"
         >
-          下载备份
+          {{ t('mproxyDownloadBackup') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="busy"
           @click="restoreConfig"
         >
-          恢复备份
+          {{ t('mproxyRestoreBackup') }}
         </button>
         <button
           class="btn btn-error btn-outline btn-sm"
           :disabled="busy"
           @click="resetConfig"
         >
-          重置配置
+          {{ t('mproxyResetConfig') }}
         </button>
       </div>
     </SectionCard>
@@ -116,6 +120,9 @@ import {
 } from '@/api/mproxy'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineProps<{
   status: MProxyStatus | null
@@ -160,7 +167,12 @@ const load = async () => {
     yamlText.value = data.yaml
     validation.value = null
   } catch (error) {
-    setMessage(`读取配置失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyConfigLoadError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     loading.value = false
   }
@@ -172,10 +184,15 @@ const validate = async () => {
   try {
     validation.value = await mproxyApi.validateConfig(yamlText.value)
     if (!validation.value.ok) {
-      setMessage('配置校验未通过，请检查输出', 'error')
+      setMessage(t('mproxyConfigValidationMessage'), 'error')
     }
   } catch (error) {
-    setMessage(`校验失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyConfigValidateError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     saving.value = false
   }
@@ -193,14 +210,19 @@ const saveAndApply = async () => {
     yamlText.value = config.value.yaml
     setMessage(
       result.restarted
-        ? '已保存，内核已重启并应用新配置'
+        ? t('mproxyConfigSavedRestarted')
         : result.applied
-          ? '已保存并热重载配置'
-          : '已保存配置',
+          ? t('mproxyConfigSavedReloaded')
+          : t('mproxyConfigSaved'),
     )
     emit('changed')
   } catch (error) {
-    setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyConfigSaveError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     saving.value = false
   }
@@ -210,42 +232,58 @@ const runDownload = async (fn: () => Promise<void>, label: string) => {
   busy.value = true
   try {
     await fn()
-    setMessage(`${label}已开始下载`)
+    setMessage(t('mproxyDownloadStarted', { label }))
   } catch (error) {
-    setMessage(`${label}失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyDownloadFailed', {
+        label,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     busy.value = false
   }
 }
 
-const exportConfig = () => runDownload(mproxyApi.exportConfig, '导出')
-const backupConfig = () => runDownload(mproxyApi.backupConfig, '备份')
+const exportConfig = () => runDownload(mproxyApi.exportConfig, t('mproxyLabelExport'))
+const backupConfig = () => runDownload(mproxyApi.backupConfig, t('mproxyLabelBackup'))
 
 const restoreConfig = async () => {
-  if (!window.confirm('确定要恢复上一份备份吗？当前配置会被覆盖。')) return
+  if (!window.confirm(t('mproxyRestoreConfirm'))) return
   busy.value = true
   try {
     await mproxyApi.restoreConfig()
     await load()
-    setMessage('已恢复备份')
+    setMessage(t('mproxyRestored'))
     emit('changed')
   } catch (error) {
-    setMessage(`恢复失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyRestoreError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     busy.value = false
   }
 }
 
 const resetConfig = async () => {
-  if (!window.confirm('确定要重置为默认配置吗？自定义节点、规则与订阅都会丢失。')) return
+  if (!window.confirm(t('mproxyResetConfirm'))) return
   busy.value = true
   try {
     await mproxyApi.resetConfig()
     await load()
-    setMessage('已重置为默认配置')
+    setMessage(t('mproxyResetDone'))
     emit('changed')
   } catch (error) {
-    setMessage(`重置失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    setMessage(
+      t('mproxyResetError', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      'error',
+    )
   } finally {
     busy.value = false
   }

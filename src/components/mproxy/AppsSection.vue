@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-col gap-3">
     <SectionCard
-      title="应用分流"
-      description="按应用决定是否走代理，仅 TUN 模式生效。"
+      :title="t('mproxyApps')"
+      :description="t('mproxyAppsDesc')"
     >
       <template #actions>
         <button
@@ -10,7 +10,7 @@
           :disabled="saving || !apps"
           @click="apply"
         >
-          {{ saving ? '应用中…' : '应用' }}
+          {{ saving ? t('mproxyApplying') : t('mproxyAppsApply') }}
         </button>
       </template>
 
@@ -34,7 +34,7 @@
           <input
             v-model="search"
             class="input input-sm flex-1"
-            placeholder="搜索应用名称或包名"
+            :placeholder="t('mproxyAppsSearch')"
             spellcheck="false"
           />
           <button
@@ -42,20 +42,20 @@
             :disabled="loading"
             @click="selectVisible"
           >
-            全选
+            {{ t('mproxySelectAll') }}
           </button>
           <button
             class="btn btn-sm"
             :disabled="loading || !selected.length"
             @click="clearSelection"
           >
-            清空
+            {{ t('mproxyClear') }}
           </button>
         </div>
 
         <div class="text-base-content/50 mt-2 text-xs">
-          已选 {{ selected.length }} 个应用 · 已加载 {{ packages.length }} 个用户应用
-          <span v-if="loading"> · 加载中…</span>
+          {{ t('mproxyAppsSelected', { selected: selected.length, total: packages.length }) }}
+          <span v-if="loading">{{ t('mproxyLoadingInline') }}</span>
         </div>
 
         <div class="bg-base-200/60 mt-2 max-h-96 scrollbar-thin overflow-y-auto rounded-lg">
@@ -63,7 +63,7 @@
             v-if="!loading && !filteredPackages.length"
             class="text-base-content/50 p-4 text-center text-xs"
           >
-            {{ packages.length ? '没有匹配的应用' : '暂无可选应用' }}
+            {{ packages.length ? t('mproxyAppsNoMatch') : t('mproxyAppsEmpty') }}
           </div>
           <label
             v-for="pkg in filteredPackages"
@@ -115,6 +115,7 @@
 import { mproxyApi, type AppsMode, type MProxyAppsResponse, type PackageInfo } from '@/api/mproxy'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 type AppEntry = PackageInfo & { label?: string }
 
@@ -140,6 +141,8 @@ type KsuPackageManager = {
   }
 }
 
+const { t } = useI18n()
+
 const emit = defineEmits<{
   changed: []
 }>()
@@ -157,16 +160,16 @@ const iconFailed = ref(new Set<string>())
 
 const currentMode = ref<AppsMode>('all')
 
-const modeOptions: Array<{ value: AppsMode; label: string }> = [
-  { value: 'all', label: '全部应用' },
-  { value: 'whitelist', label: '白名单' },
-  { value: 'blacklist', label: '黑名单' },
-]
+const modeOptions = computed<Array<{ value: AppsMode; label: string }>>(() => [
+  { value: 'all', label: t('mproxyAppsModeAll') },
+  { value: 'whitelist', label: t('mproxyAppsModeWhitelist') },
+  { value: 'blacklist', label: t('mproxyAppsModeBlacklist') },
+])
 
 const modeHint = computed(() => {
-  if (currentMode.value === 'whitelist') return '仅选中的应用走代理'
-  if (currentMode.value === 'blacklist') return '选中的应用不走代理'
-  return '所有应用按规则走代理'
+  if (currentMode.value === 'whitelist') return t('mproxyAppsHintWhitelist')
+  if (currentMode.value === 'blacklist') return t('mproxyAppsHintBlacklist')
+  return t('mproxyAppsHintAll')
 })
 
 const filteredPackages = computed(() => {
@@ -200,7 +203,9 @@ const loadApps = async () => {
     currentMode.value = data.mode ?? 'all'
     selected.value = [...(data.apps ?? [])]
   } catch (e) {
-    error.value = `读取分流设置失败：${e instanceof Error ? e.message : String(e)}`
+    error.value = t('mproxyAppsLoadError', {
+      error: e instanceof Error ? e.message : String(e),
+    })
   }
 }
 
@@ -267,10 +272,13 @@ const apply = async () => {
       apps: result.apps,
       tunEnabled: apps.value?.tunEnabled ?? false,
     }
-    setMessage(mode === 'all' ? '已切换为全部应用' : '应用分流已保存并生效')
+    setMessage(mode === 'all' ? t('mproxyAppsAppliedAll') : t('mproxyAppsSaved'))
     emit('changed')
   } catch (e) {
-    setMessage(`保存失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+    setMessage(
+      t('mproxyAppsSaveError', { error: e instanceof Error ? e.message : String(e) }),
+      'error',
+    )
   } finally {
     saving.value = false
   }
