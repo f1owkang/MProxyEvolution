@@ -90,7 +90,7 @@ mihomo 负责代理，zashboard 负责界面，Go 后端把两者串成一个只
 ```text
 KernelSU / Magisk WebView
   └─ module/webroot/index.html（bootstrap）
-      └─ mproxy boot → http://127.0.0.1:9091/?token=...#/settings?section=moduleSettings
+      └─ mproxy boot → http://127.0.0.1:9091/?token=...#/
           └─ Go 后端（127.0.0.1:9091，内嵌 zashboard）
               ├─ /api/mihomo/*   同源反代 mihomo controller（HTTP / SSE / WS）
               ├─ /api/config     唯一 config.yaml 的读取 / 校验 / 导入
@@ -99,7 +99,7 @@ KernelSU / Magisk WebView
                   └─ mihomo -d /data/adb/mproxy -f config.yaml
 ```
 
-- **唯一配置**：后端在 `config.yaml` 缺失时生成默认模板（随机 `secret`、TUN 开启、fake-ip DNS、私有网段直连、`MATCH,PROXY`）。面板设置经 `PATCH /api/mihomo/configs` 先合并进 YAML 再转发，内核重启后设置不丢。
+- **唯一配置**：后端在 `config.yaml` 缺失时生成默认模板（随机 `secret`、TUN 开启、fake-ip DNS、内置远程规则集与命名规则：广告拦截 → `REJECT`，私有网络 / 苹果服务 / 哔哩哔哩 / 国内域名 / 国内 IP → `DIRECT`，兜底 `MATCH,PROXY`）。面板设置经 `PATCH /api/mihomo/configs` 先合并进 YAML 再转发，内核重启后设置不丢。
 - **同源代理**：面板启动前由 `mproxy-boot.js` 注入 API 基址 `/api/mihomo` 与 token；后端转发时补上 mihomo 的 `Authorization: Bearer`，并拦截 `PATCH/PUT /configs` 与 `restart` 做持久化。
 - **仅本机监听**：后端固定 `127.0.0.1:9091`，`/api/*` 需要随机 token（`state/token`，权限 0600）；mihomo controller 默认 `127.0.0.1:9090`，默认不对局域网开放。
 - **四架构打包**：mihomo 以 `CGO_ENABLED=0 GOOS=linux` + `with_gvisor` 构建为静态二进制（arm64 / armv7 / 386 / amd64）；`customize.sh` 按 `ro.product.cpu.abi` 只保留当前架构，`post-fs-data.sh` 准备 `/dev/net/tun`，`service.sh` 等 `sys.boot_completed` 后拉起后端。
@@ -115,7 +115,13 @@ KernelSU / Magisk WebView
 <details>
 <summary>第一次打开没有节点、无法上网？</summary>
 
-默认配置是直连模式。进入 MihomoProxy Evolution → 订阅导入 Clash 订阅（URL、文件或粘贴完整配置，支持合并 / 替换），保存后到「内核」确认已启动，再到「节点」选择节点。
+默认配置是直连模式：未导入订阅时 `PROXY` 组只有 `DIRECT`。内置规则集（广告拦截、私有网络、苹果服务、哔哩哔哩、国内域名、国内 IP）会在首次启动或超过 `interval`（默认 1 天）时从 GitHub 下载；下载失败不会阻止内核启动，只是对应规则暂时不生效，未命中的流量按最后的 `MATCH,PROXY` 直连。进入 MihomoProxy Evolution → 订阅导入 Clash 订阅（URL、文件或粘贴完整配置，支持合并 / 替换），保存后到「内核」确认已启动，再到「节点」选择节点；导入订阅会用订阅自带的 `rules` 整体替换默认规则。
+</details>
+
+<details>
+<summary>不想让某类流量走默认规则怎么办？</summary>
+
+默认分流由远程规则集驱动：编辑 `/data/adb/mproxy/config.yaml`，在 `rules:` 段注释或删除对应的 `RULE-SET` 行即可关闭该类规则（例如关闭广告拦截就注释 `RULE-SET,广告拦截,REJECT`）；要连下载一起停掉，再删除 `rule-providers:` 里的同名项。GitHub 不可达时可给规则集的 `url` 加镜像前缀（如 `https://ghfast.top/` + 原地址），或保留 `proxy: PROXY` 让规则集经当前节点下载（导入订阅后生效）。
 </details>
 
 <details>

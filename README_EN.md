@@ -90,7 +90,7 @@ mihomo does the proxying, zashboard provides the UI, and a Go backend ties them 
 ```text
 KernelSU / Magisk WebView
   └─ module/webroot/index.html (bootstrap)
-      └─ mproxy boot → http://127.0.0.1:9091/?token=...#/settings?section=moduleSettings
+      └─ mproxy boot → http://127.0.0.1:9091/?token=...#/
           └─ Go backend (127.0.0.1:9091, embeds zashboard)
               ├─ /api/mihomo/*   same-origin reverse proxy to the mihomo controller (HTTP / SSE / WS)
               ├─ /api/config     read / validate / import the single config.yaml
@@ -99,7 +99,7 @@ KernelSU / Magisk WebView
                   └─ mihomo -d /data/adb/mproxy -f config.yaml
 ```
 
-- **Single config**: when `config.yaml` is missing, the backend generates a default template (random `secret`, TUN enabled, fake-ip DNS, private ranges direct, `MATCH,PROXY`). Panel changes go through `PATCH /api/mihomo/configs`, which merges them into the YAML before forwarding, so settings survive kernel restarts.
+- **Single config**: when `config.yaml` is missing, the backend generates a default template (random `secret`, TUN enabled, fake-ip DNS, built-in remote rule sets and named rules: ads/tracking → `REJECT`; private network / Apple services / Bilibili / China domains / China IPs → `DIRECT`; fallback `MATCH,PROXY`). Panel changes go through `PATCH /api/mihomo/configs`, which merges them into the YAML before forwarding, so settings survive kernel restarts.
 - **Same-origin proxy**: before the app starts, `mproxy-boot.js` injects the API base `/api/mihomo` and the token; the backend adds mihomo's `Authorization: Bearer` header and intercepts `PATCH/PUT /configs` and `restart` to persist changes.
 - **Local-only listening**: the backend is fixed to `127.0.0.1:9091` and `/api/*` requires a random token (`state/token`, mode 0600). The mihomo controller defaults to `127.0.0.1:9090` and is not exposed to the LAN.
 - **Four-architecture builds**: mihomo is cross-compiled as a static binary with `CGO_ENABLED=0 GOOS=linux` and `with_gvisor` (arm64 / armv7 / 386 / amd64); `customize.sh` keeps only the ABI reported by `ro.product.cpu.abi`, `post-fs-data.sh` prepares `/dev/net/tun`, and `service.sh` starts the backend after `sys.boot_completed`.
@@ -115,7 +115,13 @@ Check that `/data/adb/mproxy/bin/mproxy` exists and is executable, run `/data/ad
 <details>
 <summary>No nodes on first launch, or no internet access?</summary>
 
-The default config is direct mode. Open MihomoProxy Evolution → Subscription and import your Clash subscription (URL, file, or paste a full config; merge or replace), then make sure the kernel is running under "Kernel" and pick a node under "Proxies".
+The default config is direct mode: with no subscription imported, the `PROXY` group contains only `DIRECT`. The built-in rule sets (ads, private network, Apple services, Bilibili, China domains, China IPs) are downloaded from GitHub on first start or once `interval` (1 day by default) has passed. A failed download never blocks the kernel from starting — the affected rules are just inactive for now, and unmatched traffic follows the final `MATCH,PROXY` (direct). Open MihomoProxy Evolution → Subscription and import your Clash subscription (URL, file, or paste a full config; merge or replace), then make sure the kernel is running under "Kernel" and pick a node under "Proxies"; importing a subscription replaces the default rules with the subscription's own `rules`.
+</details>
+
+<details>
+<summary>How do I turn off a specific kind of rule?</summary>
+
+The default routing is driven by remote rule sets. Edit `/data/adb/mproxy/config.yaml` and comment out or delete the matching `RULE-SET` line under `rules:` to disable that category (for example, comment out `RULE-SET,广告拦截,REJECT` to stop ad blocking); to also stop its download, delete the same entry under `rule-providers:`. If GitHub is unreachable, prefix the rule set `url` with a mirror (e.g. `https://ghfast.top/` + the original URL), or keep `proxy: PROXY` so rule sets are downloaded through the current node (effective after importing a subscription).
 </details>
 
 <details>

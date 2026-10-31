@@ -39,7 +39,7 @@ MProxyEvolution 是 KernelSU / Magisk 网络代理模块：mihomo 负责代理�
 | `.github/workflows/` | `ci.yml`、`release.yml`、`sync-upstream.yml` |
 
 运行链路：KernelSU WebView → `module/webroot/index.html` → `mproxy boot` →
-`http://127.0.0.1:9091/?token=...#/settings?section=moduleSettings` → Go 后端（内嵌面板，`/api/mihomo/*`
+`http://127.0.0.1:9091/?token=...#/` → Go 后端（内嵌面板，`/api/mihomo/*`
 反代 controller、`/api/config` 读写唯一配置、`/api/core/*` 管内核、`/api/mproxy/*` 页面接口）→
 `mproxy serve` 子进程：`mihomo -d /data/adb/mproxy -f config.yaml`。
 
@@ -146,6 +146,14 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   `ipv6` 与 `dns.ipv6`，变更会触发内核重启。
 - `tun.enable` 与 `x-mproxy.proxy-mode` 必须一致（tun ↔ true，mixed ↔ false）；`tun.include-package`
   存在即白名单，`exclude-package` 存在即黑名单，互斥。
+- 默认模板分流用远程 `rule-providers`：URL 指向后端本地代下载接口
+  `http://127.0.0.1:9091/rules/<name>.yaml?src=<raw.githubusercontent.com URL>`，由后端用内嵌 CA +
+  镜像回退（gh-proxy / ghfast / jsDelivr）抓取后以本机 HTTP 提供给 mihomo；mihomo 不再直接访问外网，
+  可绕开 Android 静态二进制的 `x509: certificate signed by unknown authority` 与 GitHub EOF。
+  只允许 `MetaCubeX/meta-rules-dat` 的 https raw URL（`validRuleSource`），不要开放任意 URL 代抓。
+  不要内联大段域名规则；`rules` 里的 `RULE-SET` 必须引用已定义规则集，目标必须是内置策略或
+  `proxy-groups` 里的组。不要用 `GEOIP`/`GEOSITE`：`mihomo -t` 解析时会尝试下载 geodata，离线校验
+  （45s 超时）会失败。默认模板不得写入用户私有机场域名/节点；不要新增启动时自动改用户 URL 的迁移逻辑。
 - `update.json` 与 `.release-baseline` 发版后由 CI 回写，不要手改。
 
 ### 文档与行尾
@@ -193,8 +201,10 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 ### 内核生命周期与更新
 
 - `serve`：建目录、加载/生成配置、写 `state/backend.pid`、按 `auto-start` 异步启动内核。**不要先阻塞等待
-  默认路由**（Android 策略路由下主表探测不可靠，曾因此开机白等 120s）；立即启动内核，启动失败或
-  “进程在跑但控制器 `tunEnabled=false`”时停止后按 2s/5s/10s/20s 退避重试，最多 5 次，总预算 5 分钟。
+  默认路由**（Android 策略路由下主表探测不可靠，曾因此开机白等 120s）；立即启动内核，启动失败按
+  2s/5s/10s/20s 退避重试（最多 5 次，总预算 5 分钟）。若内核启动但控制器 `tunEnabled=false`，
+  自动切换 akashaProxy 风格手工 TUN：停内核 → 持久化 `tun.auto-route=false` → 重启并安装
+  手工 `ip rule/route + iptables mark`；手工模式失败只记录日志并保留内核进程/面板可用。
   桌面开发同样直接启动；收到 SIGINT/SIGTERM 退出但内核保持运行。
 - 模块描述：`mproxy serve` 启动、内核启动/停止/崩溃/看门狗重启以及 `/api/status` 轮询时，best-effort 把
   当前状态与配置摘要写回**已安装模块** `module.prop` 的 `description=` 行（唯一允许修改的行；保留
@@ -213,8 +223,9 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - `boot`：先探测 `/healthz`，未启动则 detached 拉起 `serve`，20s 内轮询，最后输出带 token 的面板地址；
   `status` 未运行返回非 0，`stop` 先内核后后端，`toggle` 切换。
 - TUN 启动前保持 `tun.auto-detect-interface` 不变（默认 true，由 mihomo 自行探测出口网卡）；仅当用户显式
-  关闭 auto-detect 且顶层 `interface-name` 为空时，后端才写入探测到的 `interface-name`，避免 Android 策略
-  路由下 `default interface lost`。
+  关闭 auto-detect 且顶层 `interface-name` 为空时，后端才写入探测到的 `interface-name`。**例外**：手工
+  TUN 模式（`tun.auto-route=false`）必须关闭 auto-detect 并写死 `interface-name`，否则 mihomo 会反复
+  打印空网卡警告、出站 DNS 报 `no such device`；探测顺序为 `/proc/net/route`/`ip route` → `ip route get`。
 - 内核更新：GitHub release API（`MetaCubeX/mihomo`）→ stable 只取非 prerelease、alpha 取最新 → 按
   `GOOS/GOARCH/GOARM` 匹配资产 →（可加 ghproxy）下载 → 解压（gz/zip/裸二进制）→ 原子替换 `bin/mihomo` →
   `mihomo -v` 校验 → 按需重启；失败尽量恢复旧内核。进度走 `/api/jobs`。版本号从 `mihomo -v` 或 controller
@@ -227,7 +238,9 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - `post-fs-data.sh` 尽早建数据目录、开 `ip_forward`、兼容 `/dev/tun` → `/dev/net/tun` 并 `chmod 0600`
   （后端启动时也会尽力重复准备）。
 - 默认 TUN 开启、`stack: mixed`、`auto-route: true`、`dns-hijack: any:53`、MTU 1500；DNS 为 fake-ip
-  （`198.18.0.1/16`），监听 `0.0.0.0:1053`，nameserver 为 DoH。TProxy/redirect 在 v0.1 拒绝，不要顺手启用。
+  （`198.18.0.1/16`），监听 `0.0.0.0:1053`；nameserver 为国内 UDP / DoT / DoH 混合上游，
+  `proxy-server-nameserver` 必须用真实 DoH（不能填 `udp://127.0.0.1:1053`，否则节点域名会被分配 fake-ip）。
+  TProxy/redirect 在 v0.1 拒绝，不要顺手启用。
 - TUN 启动前按 `x-mproxy.private-dns` 决定是否临时保存并关闭系统 Private DNS（`state/private_dns`，
   0600，已存在不覆盖）：`auto`（默认）关闭，`keep` 完全不动系统设置；停止或自愈失败时**始终**按状态
   文件恢复原值（与当前设置无关），不要覆盖用户原始模式，也不要让它长期停留在 off。
@@ -239,8 +252,28 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   - 通过 `sysutil.ApplyCoreNetAdmin` 给内核子进程补充 **AID_NET_ADMIN(3005)** 组（非 root/非 Android 不处理），
     与参考模块的 `root:net_admin` 启动方式一致；`cmd.Start` 失败仍按原错误返回。
   - 内核启动成功但控制器报告 `tunEnabled=false`（TUN 实际失败、进程仍存活）时，把
-    `ip rule show` / `ip route show table all` / `ip link show` 快照写入 backend.log，便于对照排查；
-    `mproxy action` 也会把这种情况判为启动失败。
+    `ip rule show` / `ip route show table all` / `ip link show` 快照写入 backend.log，并自动切换
+    akashaProxy 风格手工 TUN（`sysutil.ManualTUNSetup`）：`tun.auto-route=false` 持久化，mangle
+    OUTPUT/PREROUTING 打 `0x2025` mark（OUTPUT 排除 UID 0 的 mihomo/后端自身）、`ip rule fwmark 2025 table 2025
+    pref 5000`、`ip route default dev <tun> table 2025`、FORWARD 放行；Stop/崩溃/重启前必须
+    `ManualTUNCleanup`，否则 TUN 消失后默认路由会黑洞。手工模式依赖 iptables（Android 缺失时只告警），
+    且 `tun.include-package`/`exclude-package` 的应用分流可能不生效（日志会提示）。
+  - 手工模式必须同时关闭 `tun.auto-detect-interface` 并写顶层 `interface-name`（用
+    `ip route get 1.1.1.1` 兜底探测策略表出口；只读主表在 Android 17 会得到空网卡），否则 mihomo
+    会不停打印 `[TUN] Auto detect interface ... get empty name`、出站 DNS 报 `no such device`。
+  - 手工 TUN 的 mangle 规则（对照 akashaProxy tun.proxy）：
+    - PREROUTING 链全部打 mark（转发/热点流量）；
+    - OUTPUT 链先排除 UID 0（mihomo 与后端自身）与 `conntrack --ctdir REPLY`（手机作为服务端的
+      局域网回包，放行后 MCP/ADB/LAN 服务才不会断），再按 `tun.include-package`/`exclude-package`
+      解析 `/data/system/packages.list` 得到 UID：白名单只 mark 列出的 UID，黑名单 RETURN 列出的 UID
+      后 mark 其余；应用分流条目无法解析时手工接管直接失败（不回退成“全局标记”）。
+      不要用 `--gid-owner 3005` 排除 mihomo：该组只是附加组，部分内核上 iptables 只看主组，
+      会导致 mihomo 出站被再次 mark 进 TUN，规则集下载表现为 `Get ...: EOF`。
+    - iptables 统一 `-w 100` 等锁；默认路由按 akashaProxy 的做法有限次重试；`ipv6=false` 时写
+      `/proc/sys/net/ipv6/conf/<tun>/disable_ipv6=1`。手工模式目前只接管 IPv4，`x-mproxy.ipv6=true`
+      时必须记录“IPv6 未由手工模式接管”的告警。
+  - `mproxy stop` / 模块「执行」停止路径必须优先走 `/api/core/stop`（清理 Private DNS、手工 TUN
+    规则）再 `/api/backend/shutdown`，并阻塞等待 `/healthz` 不再响应；API 失败才回退 pid 清理。
 - 端口默认：后端 9091、controller 9090、mixed 7890、socks 7891、http 0、DNS 1053；改端口要同步默认模板、
   README 与面板默认值，并注意 `CriticalChanges` 会触发内核重启。
 
@@ -258,7 +291,8 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   应用名或面板字符串拼进 shell 命令。
 - 订阅与节点配置含敏感凭据：不要打印 token/secret，不要把 `config.yaml`、`state/token`、`logs/` 提交或上传；
   诊断接口/诊断包只含路径、摘要与日志尾部。
-- 不引入远程脚本、CDN、遥测或上传；后端只出站访问 GitHub release、订阅 URL 与本机 mihomo controller。
+- 不引入远程脚本、CDN、遥测或上传；后端只出站访问 GitHub release、订阅 URL 与本机 mihomo controller
+  （mihomo 内核自身会按默认配置下载 GitHub raw 上的远程规则集，失败只告警、不阻断启动）。
 - 不要提交 `build/`、`dist/`、`*.zip`、`backend/internal/webui/dist` 构建资产、`.devdata/`、日志、签名或密钥。
 
 ## CI 与发版
