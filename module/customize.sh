@@ -72,6 +72,20 @@ read_key()
 
 [ -n "${MODPATH:-}" ] || die "安装失败：MODPATH 未设置 / MODPATH not set"
 [ -n "${ZIPFILE:-}" ] && [ -f "${ZIPFILE:-}" ] || die "安装失败：找不到模块压缩包 / ZIPFILE missing"
+
+# BOOTMODE：Magisk / KernelSU / APatch 的安装器会设为 true。
+# 显式 false/0 说明不是在管理器安装环境里执行，继续写模块目录可能破坏系统；未设置时兼容旧安装器，
+# 只警告后继续（也便于本地调试）。
+case "${BOOTMODE:-}" in
+true|TRUE|True) ;;
+false|FALSE|False|0)
+	die "请从 Magisk / KernelSU / APatch 管理器安装 / Please install from a Magisk / KernelSU / APatch manager" ;;
+'')
+	say "! 警告：BOOTMODE 未设置，继续尝试安装 / WARNING: BOOTMODE is not set, continuing anyway" ;;
+*)
+	say "! 警告：未识别的 BOOTMODE=${BOOTMODE}，继续尝试安装 / WARNING: unrecognized BOOTMODE, continuing anyway" ;;
+esac
+
 command -v unzip >/dev/null 2>&1 || die "缺少 unzip / unzip not found"
 
 # 解压前先从 zip 读取 module.prop，保证标题和版本可用。
@@ -122,6 +136,11 @@ say "$MODNAME  v$MODVER($MODCODE) · $ABI_NAME"
 say "$(L "作者：$AUTHOR" "by $AUTHOR")"
 rule
 say "$(L "设备：" "Device: ")${device:-unknown}${android:+ · $android}"
+
+# APatch 使用 /data/adb/apd 作为守护进程标识；检测到就提示，属于尽力支持。
+if [ -e /data/adb/apd ]; then
+	say "$(L "检测到 APatch 管理器（尽力支持）" "Detected APatch manager (best-effort support)")"
+fi
 
 # 显式非交互安装（ksud/脚本/CI 可设置 MPROXY_HEADLESS=1）直接跳过按键流程。
 # 注意：不能仅凭 stdin 不是终端就判定无交互——Magisk/KernelSU 管理器安装时 stdin 通常也不是
@@ -233,6 +252,12 @@ chmod 0700 "$MPROXY_DATA/state" 2>/dev/null || true
 
 find "$MODPATH" -type f -name '*.sh' -exec chmod 0755 {} \; 2>/dev/null || true
 chmod 0755 "$MPROXY_SRC" "$MIHOMO_SRC" 2>/dev/null || true
+
+# SELinux：尽力把模块文件标记为 system_file，部分 ROM 的严格策略会拒绝读取其它上下文的文件。
+# chcon 不可用或失败都不阻塞安装（模块仍可通过 mksh 执行）。
+if command -v chcon >/dev/null 2>&1; then
+	chcon -R u:object_r:system_file:s0 "$MODPATH" 2>/dev/null || true
+fi
 
 # ---------------------------------------------------------------------------
 # 结果
