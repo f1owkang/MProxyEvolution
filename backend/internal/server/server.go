@@ -113,6 +113,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/backend/shutdown", s.handleBackendShutdown)
 	m.HandleFunc("GET /api/packages", s.handlePackages)
 
+	// 本地规则集代下载：mihomo 只访问本机 HTTP，由后端用内嵌 CA/镜像抓取。
+	m.HandleFunc("GET /rules/{name}", s.handleRuleProvider)
+
 	// MProxyEvolution 页面
 	m.HandleFunc("GET /api/mproxy/settings", s.handleSettingsGet)
 	m.HandleFunc("PATCH /api/mproxy/settings", s.handleSettingsPatch)
@@ -176,7 +179,7 @@ func (s *Server) BaseURL() string { return "http://" + ListenAddr }
 
 // PanelURL 返回带 token 的面板地址（与 cmd/mproxy 的 CLI 输出保持一致）。
 func (s *Server) PanelURL() string {
-	return fmt.Sprintf("%s/?token=%s#/settings?section=moduleSettings", s.BaseURL(), s.opts.Token)
+	return fmt.Sprintf("%s/?token=%s#/", s.BaseURL(), s.opts.Token)
 }
 
 // restartBackend 以脱离方式重新拉起自身进程。

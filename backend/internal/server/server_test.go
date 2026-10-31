@@ -842,7 +842,7 @@ func TestTrailingJSONRejected(t *testing.T) {
 
 func TestPanelURLMatchesCLI(t *testing.T) {
 	env := newTestEnv(t, false)
-	want := "http://127.0.0.1:9091/?token=" + testToken + "#/settings?section=moduleSettings"
+	want := "http://127.0.0.1:9091/?token=" + testToken + "#/"
 	if got := env.server.PanelURL(); got != want {
 		t.Fatalf("PanelURL() = %q，期望 %q", got, want)
 	}
