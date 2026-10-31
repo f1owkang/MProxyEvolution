@@ -77,6 +77,10 @@ export type CoreStatus = {
   version: string
   startedAt: string
   uptimeSec: number
+  /** 后端看门狗累计自动重启次数（后端新增字段，旧后端可能缺失）。 */
+  restarts?: number
+  /** 最近一次内核退出摘要（time/pid/err，后端新增字段）。 */
+  lastExit?: string
   controller: CoreControllerStatus
 }
 
@@ -292,7 +296,30 @@ export type MProxyProviderResponse = {
   providers: MProxyProviderInfo[]
 }
 
-export type DiagnosticsResponse = Record<string, unknown>
+export type DiagnosticCheck = {
+  name: string
+  ok: boolean
+  detail: string
+}
+
+export type DiagnosticFile = {
+  name: string
+  path: string
+  exists: boolean
+  size: number
+  modifiedAt?: string
+}
+
+export type DiagnosticsResponse = {
+  generatedAt?: string
+  version?: string
+  dataDir?: string
+  moduleDir?: string
+  checks?: DiagnosticCheck[]
+  files?: DiagnosticFile[]
+  logTail?: string[]
+  [key: string]: unknown
+}
 
 export type MihomoProvider = {
   name: string

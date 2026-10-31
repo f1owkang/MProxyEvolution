@@ -34,7 +34,12 @@
         <div class="bg-base-200 rounded-lg p-3">
           <div class="text-base-content/50 text-[11px]">状态</div>
           <div class="mt-0.5 flex items-center gap-1.5 font-medium">
-            <span :class="['inline-block size-2 rounded-full', status?.core.running ? 'bg-success' : 'bg-base-content/30']" />
+            <span
+              :class="[
+                'inline-block size-2 rounded-full',
+                status?.core.running ? 'bg-success' : 'bg-base-content/30',
+              ]"
+            />
             {{ status ? (status.core.running ? '运行中' : '已停止') : '未知' }}
           </div>
         </div>
@@ -63,6 +68,10 @@
           </div>
         </div>
         <div class="bg-base-200 rounded-lg p-3">
+          <div class="text-base-content/50 text-[11px]">自动重启</div>
+          <div class="mt-0.5 truncate font-medium">{{ status?.core.restarts ?? 0 }} 次</div>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3">
           <div class="text-base-content/50 text-[11px]">更新通道</div>
           <div class="mt-0.5 flex items-center gap-2 font-medium">
             <select
@@ -77,10 +86,22 @@
         </div>
       </div>
 
-      <label class="mt-3 flex items-center justify-between gap-3 rounded-lg bg-base-200 px-3 py-2.5">
+      <div
+        v-if="status?.core.lastExit"
+        class="bg-base-200 mt-2 rounded-lg px-3 py-2.5"
+      >
+        <div class="text-base-content/50 text-[11px]">上次内核退出</div>
+        <div class="mt-0.5 font-mono text-xs break-all">{{ status.core.lastExit }}</div>
+      </div>
+
+      <label
+        class="bg-base-200 mt-3 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
+      >
         <span class="text-sm">
           开机自启
-          <span class="text-base-content/50 block text-xs">设备启动后自动拉起 MihomoProxy Evolution 与内核</span>
+          <span class="text-base-content/50 block text-xs"
+            >设备启动后自动拉起 MihomoProxy Evolution 与内核</span
+          >
         </span>
         <input
           type="checkbox"

@@ -77,6 +77,28 @@
           {{ message }}
         </div>
 
+        <div
+          v-if="diagnostics?.checks?.length"
+          class="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2"
+        >
+          <div
+            v-for="check in diagnostics.checks"
+            :key="check.name"
+            class="bg-base-200 rounded-lg px-3 py-2.5"
+          >
+            <div class="flex items-center gap-1.5 text-xs font-medium">
+              <span
+                class="inline-block size-2 shrink-0 rounded-full"
+                :class="check.ok ? 'bg-success' : 'bg-error'"
+              />
+              {{ check.name }}
+            </div>
+            <div class="text-base-content/60 mt-1 font-mono text-[11px] break-all">
+              {{ check.detail }}
+            </div>
+          </div>
+        </div>
+
         <details
           v-if="diagnostics"
           class="bg-base-200 rounded-lg p-3"
