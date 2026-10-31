@@ -112,12 +112,13 @@ const { padding, paddingTop, paddingBottom } = usePaddingForViews({
   offsetTop: 0,
   offsetBottom: 0,
 })
-// Edge-to-edge（KernelSU）下页面顶部会压到状态栏：叠加系统安全区，底部同样避让，
-// 兼容 insets.css 注入的变量与 WebView 原生 env()。
+// Edge-to-edge（KernelSU）下页面顶部会压到状态栏：叠加系统安全区，底部同样避让。
+// 参考 CRecordEvolution：新版 KSU 注入 --safe-area-inset-*，旧版 insets.css 只提供
+// --window-inset-*，浏览器再兜底 env()，最后 0。
 const pageStyle = computed(() => ({
   ...padding.value,
-  paddingTop: `calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + ${paddingTop.value}px)`,
-  paddingBottom: `calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + ${paddingBottom.value}px)`,
+  paddingTop: `calc(var(--safe-area-inset-top, var(--window-inset-top, env(safe-area-inset-top, 0px))) + ${paddingTop.value}px)`,
+  paddingBottom: `calc(var(--safe-area-inset-bottom, var(--window-inset-bottom, env(safe-area-inset-bottom, 0px))) + ${paddingBottom.value}px)`,
 }))
 
 const tab = ref('core')
