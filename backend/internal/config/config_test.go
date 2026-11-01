@@ -39,8 +39,9 @@ func TestDefaultConfigValid(t *testing.T) {
 }
 
 // TestDefaultConfigRemoteRules 约束默认模板的远程规则集写法：
-// 规则集必须是 https + 合法 behavior，RULE-SET 必须引用已定义的规则集且目标存在；
-// 默认模板不能使用 GEOIP/GEOSITE（mihomo -t 解析时会尝试下载 geodata，离线校验会失败）。
+// 规则集必须是 jsDelivr 上的 https + mrs 格式 + 合法 behavior，由 mihomo 自己下载缓存到 ./rules/；
+// RULE-SET 必须引用已定义的规则集且目标存在；默认模板不能使用 GEOIP/GEOSITE
+// （mihomo -t 解析时会尝试下载 geodata，离线校验会失败）。
 func TestDefaultConfigRemoteRules(t *testing.T) {
 	doc, err := NewDefault("s")
 	if err != nil {
@@ -60,16 +61,19 @@ func TestDefaultConfigRemoteRules(t *testing.T) {
 			t.Fatalf("rule-provider %s 不是 mapping", name)
 		}
 		url, _ := m["url"].(string)
-		if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://127.0.0.1:9091/rules/") {
-			t.Fatalf("rule-provider %s 的 url 必须是 https，得到 %q", name, url)
+		if !strings.HasPrefix(url, "https://") || !strings.Contains(url, "cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/") {
+			t.Fatalf("rule-provider %s 的 url 必须是 jsDelivr 上的 https 规则集，得到 %q", name, url)
+		}
+		if format, _ := m["format"].(string); format != "mrs" {
+			t.Fatalf("rule-provider %s 应使用 mrs 格式，得到 %q", name, format)
 		}
 		switch behavior, _ := m["behavior"].(string); behavior {
-		case "domain", "ipcidr", "classical":
+		case "domain", "ipcidr":
 		default:
 			t.Fatalf("rule-provider %s 的 behavior 非法: %q", name, behavior)
 		}
-		if path, _ := m["path"].(string); !strings.HasPrefix(path, "./rules/") {
-			t.Fatalf("rule-provider %s 应把缓存写到 ./rules/ 下，得到 %q", name, path)
+		if path, _ := m["path"].(string); !strings.HasPrefix(path, "./rules/") || !strings.HasSuffix(path, ".mrs") {
+			t.Fatalf("rule-provider %s 应把缓存写到 ./rules/*.mrs，得到 %q", name, path)
 		}
 	}
 
@@ -113,6 +117,49 @@ func TestDefaultConfigRemoteRules(t *testing.T) {
 		if !used[name] {
 			t.Fatalf("rule-provider %s 未被任何规则引用", name)
 		}
+	}
+
+	// fake-ip-filter / nameserver-policy 里的 rule-set 引用必须指向已定义的规则集。
+	checkRuleSetRefs := func(label, value string) {
+		name, ok := strings.CutPrefix(value, "rule-set:")
+		if !ok {
+			return
+		}
+		for _, n := range strings.Split(name, ",") {
+			if _, exists := providers[strings.TrimSpace(n)]; !exists {
+				t.Fatalf("%s 引用了不存在的 rule-provider: %q", label, value)
+			}
+		}
+	}
+	for _, item := range doc.GetStringSlice("fake-ip-filter") {
+		checkRuleSetRefs("fake-ip-filter", item)
+	}
+	if rawPolicy, ok := doc.Get("nameserver-policy"); ok {
+		if policy, ok := rawPolicy.(map[string]any); ok {
+			for key := range policy {
+				checkRuleSetRefs("nameserver-policy", key)
+			}
+		}
+	}
+}
+
+// TestDefaultConfigNativeTun 参考 akashaProxy：默认 TUN 使用原生 auto-route/auto-redirect，
+// 启动崩溃时才由后端回退手工 TUN。
+func TestDefaultConfigNativeTun(t *testing.T) {
+	doc, err := NewDefault("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doc.GetBool(false, "tun", "enable") {
+		t.Fatal("tun.enable 应为 true")
+	}
+	for _, key := range []string{"auto-route", "auto-redirect", "strict-route"} {
+		if !doc.GetBool(false, "tun", key) {
+			t.Fatalf("tun.%s 应为 true", key)
+		}
+	}
+	if got := doc.GetStringSlice("tun", "dns-hijack"); len(got) == 0 {
+		t.Fatal("tun.dns-hijack 不应为空")
 	}
 }
 

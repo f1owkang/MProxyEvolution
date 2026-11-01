@@ -2,9 +2,10 @@
 # 说明：x-mproxy 段是 MProxyEvolution 自有设置，mihomo 会忽略它。
 #
 # 分流说明（参考常见 Clash Verge / mihomo 桌面配置整理）：
-#   - 规则使用远程规则集（rule-providers，来自 GitHub 上的 MetaCubeX/meta-rules-dat），不再内联几千条域名。
+#   - 规则使用远程规则集（rule-providers，MetaCubeX/meta-rules-dat 的 mrs 格式，经 jsDelivr 镜像，
+#     由 mihomo 自己下载/缓存，后端不再代理下载），不再内联几千条域名。
 #   - 首次启动（或规则集超过 interval）时内核会下载规则集；下载失败不会阻止内核启动，
-#     只是对应规则暂时不生效，未命中的流量落到最后一条 MATCH。
+#     只是对应规则暂时不生效，未命中的流量落到最后一条 MATCH；下载失败时沿用 mihomo 本地缓存。
 #   - 关闭某类分流：删除或注释掉 rules 中对应的一行即可；要连下载一起停掉，再删除 rule-providers 里同名项。
 #   - 导入订阅（面板「订阅导入」）会用订阅自带的 rules 整体替换本段规则，本段只作为默认直连时的基础分流。
 
@@ -62,12 +63,15 @@ tun:
   enable: true
   stack: mixed
   auto-route: true
-  auto-redirect: false
-  auto-detect-interface: true
+  # 参考 akashaProxy：原生 auto-route + auto-redirect，由 mihomo 自己接管
+  # 路由/iptables；仅当原生 TUN 启动崩溃时才回退后端手工策略路由。
+  auto-redirect: true
+  auto-detect-interface: false
   dns-hijack:
     - any:53
     - tcp://any:53
-  strict-route: false
+  strict-route: true
+  endpoint-independent-nat: true
   mtu: 1500
 
 # DNS：fake-ip 模式，避免 DNS 泄漏与首包延迟
@@ -81,6 +85,7 @@ dns:
   use-system-hosts: false
   # 这些域名不分配 fake-ip（需要真实 IP 的局域网 / NTP / 音乐 / 游戏 / 测速 / 流媒体校验域名）
   fake-ip-filter:
+    - rule-set:私有网络   # 私有网络域名不分配 fake-ip（引用内置规则集，避免逐条维护）
     - "*.lan"
     - "*.localdomain"
     - "*.example"
@@ -174,6 +179,10 @@ dns:
   proxy-server-nameserver:
     - https://doh.pub/dns-query
     - https://dns.alidns.com/dns-query
+  # 域名解析策略：内置规则集命中的域名走国内 DNS，广告域名直接返回空结果。
+  nameserver-policy:
+    "rule-set:私有网络,国内域名,苹果服务,哔哩哔哩": [119.29.29.29, 223.5.5.5]
+    "rule-set:广告拦截": rcode://success
 
 proxies: []
 
@@ -186,58 +195,65 @@ proxy-groups:
 
 proxy-providers: {}
 
-# 远程规则集（MetaCubeX/meta-rules-dat，GitHub 托管，behavior 为 domain / ipcidr）
+# 远程规则集（MetaCubeX/meta-rules-dat 的 mrs 格式，经 jsDelivr 镜像，由 mihomo 自己下载/缓存）
 # 只保留和默认分流真正相关的类别，避免首次启动下载太多文件。
-# proxy: PROXY 表示经当前出口下载：未导入订阅时 PROXY=DIRECT（直连 GitHub）；导入订阅后会走所选节点，
-# 适合 GitHub 被墙的网络。首次启动若下载失败，内核仍会正常启动，规则集在后续重试/重启后补齐；
-# 也可以自行给 url 加镜像前缀（例如 https://ghfast.top/ + 原始地址）。
+# - format: mrs 体积小、解析快（behavior 必须是 domain / ipcidr）。
+# - proxy: PROXY 表示经当前出口下载：未导入订阅时 PROXY=DIRECT；导入订阅后走所选节点。
+# - TLS 校验依赖后端启动内核前写入的 SSL_CERT_FILE / 内嵌 CA；下载失败不影响内核启动，
+#   mihomo 会沿用 ./rules/ 下的本地缓存并在之后重试。
 rule-providers:
   # 广告 / 跟踪 / 恶意域名 → REJECT（不需要拦截就注释掉 rules 里的 RULE-SET,广告拦截,REJECT）
   广告拦截:
     type: http
     behavior: domain
-    url: http://127.0.0.1:9091/rules/ads.yaml?src=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ads-all.yaml
-    path: ./rules/ads.yaml
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/category-ads-all.mrs
+    path: ./rules/ads.mrs
     interval: 86400
     proxy: PROXY
   # 局域网 / 路由器管理域名（router.asus.com、Instant On 等）→ DIRECT
   私有网络:
     type: http
     behavior: domain
-    url: http://127.0.0.1:9091/rules/private.yaml?src=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.yaml
-    path: ./rules/private.yaml
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/private.mrs
+    path: ./rules/private.mrs
     interval: 86400
     proxy: PROXY
   # 苹果服务（App Store / iCloud / iTunes / Apple Pay 等）→ DIRECT
   苹果服务:
     type: http
     behavior: domain
-    url: http://127.0.0.1:9091/rules/apple.yaml?src=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.yaml
-    path: ./rules/apple.yaml
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/apple.mrs
+    path: ./rules/apple.mrs
     interval: 86400
     proxy: PROXY
   # 哔哩哔哩 → DIRECT（港澳台番剧等需要代理时删掉 rules 里的对应行并改用订阅规则）
   哔哩哔哩:
     type: http
     behavior: domain
-    url: http://127.0.0.1:9091/rules/bilibili.yaml?src=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/bilibili.yaml
-    path: ./rules/bilibili.yaml
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/bilibili.mrs
+    path: ./rules/bilibili.mrs
     interval: 86400
     proxy: PROXY
   # 国内常见域名（支付、国内 CDN、镜像站等）→ DIRECT
   国内域名:
     type: http
     behavior: domain
-    url: http://127.0.0.1:9091/rules/cn-domain.yaml?src=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-cn.yaml
-    path: ./rules/cn-domain.yaml
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/geolocation-cn.mrs
+    path: ./rules/cn-domain.mrs
     interval: 86400
     proxy: PROXY
   # 国内 IP 段（运营商 / 国内机房）→ DIRECT，no-resolve 表示不为此规则触发 DNS 解析
   国内IP:
     type: http
     behavior: ipcidr
-    url: http://127.0.0.1:9091/rules/cn-ip.yaml?src=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.yaml
-    path: ./rules/cn-ip.yaml
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/cn.mrs
+    path: ./rules/cn-ip.mrs
     interval: 86400
     proxy: PROXY
 
@@ -266,5 +282,8 @@ rules:
   - RULE-SET,国内IP,DIRECT,no-resolve
   # 8) 本机域名：直连
   - DOMAIN-SUFFIX,local,DIRECT
-  # 9) 兜底：其余流量走 PROXY（未导入订阅时 PROXY=DIRECT，即默认直连）
+  # 10) 拒绝 QUIC/HTTP3：部分机场节点 TCP 正常但 UDP 转发不通，浏览器会卡在 QUIC
+  #     且长时间不回退 TCP，表现为“海外网页一直转圈”。拒绝 UDP 443 可强制走 TCP。
+  - AND,((NETWORK,udp),(DST-PORT,443)),REJECT
+  # 11) 兜底：其余流量走 PROXY（未导入订阅时 PROXY=DIRECT，即默认直连）
   - MATCH,PROXY

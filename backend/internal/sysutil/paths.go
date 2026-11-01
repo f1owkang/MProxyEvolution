@@ -103,8 +103,8 @@ func (p Paths) PrivateDNSStatePath() string { return filepath.Join(p.StateDir(),
 // ProvidersDir 返回订阅 provider 缓存目录。
 func (p Paths) ProvidersDir() string { return filepath.Join(p.DataDir, "providers") }
 
-// RulesetDir 返回规则集缓存目录。
-func (p Paths) RulesetDir() string { return filepath.Join(p.DataDir, "ruleset") }
+// RulesDir 返回规则集缓存目录。
+func (p Paths) RulesDir() string { return filepath.Join(p.DataDir, "rules") }
 
 // CoreBinaryName 返回当前平台的内核文件名。
 func CoreBinaryName() string {
@@ -171,7 +171,7 @@ func (p Paths) EnsureDirs() error {
 		{p.BinDir(), 0o755},
 		{p.LogsDir(), 0o755},
 		{p.ProvidersDir(), 0o755},
-		{p.RulesetDir(), 0o755},
+		{p.RulesDir(), 0o755},
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d.path, d.mode); err != nil {
