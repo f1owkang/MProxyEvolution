@@ -308,7 +308,14 @@ func ensureProxyGroup(dst, imported *Doc, warnings *[]string) {
 				memberSet[n] = true
 			}
 		}
-		gm["proxies"] = toStringAnySlice(members)
+		if len(providerNames) > 0 && len(members) == 1 && members[0] == "DIRECT" {
+			members = nil
+		}
+		if len(members) > 0 {
+			gm["proxies"] = toStringAnySlice(members)
+		} else {
+			delete(gm, "proxies")
+		}
 		if len(providerNames) > 0 {
 			uses := toStringSlice(gm["use"])
 			useSet := map[string]bool{}
@@ -328,13 +335,19 @@ func ensureProxyGroup(dst, imported *Doc, warnings *[]string) {
 	}
 	// 没有 PROXY 组则创建一个
 	newGroup := map[string]any{
-		"name":    "PROXY",
-		"type":    "select",
-		"proxies": toStringAnySlice(append([]string{"DIRECT"}, proxyNames...)),
+		"name": "PROXY",
+		"type": "select",
 	}
-	if len(providerNames) > 0 {
+	if len(proxyNames) == 0 && len(providerNames) > 0 {
+		// 只有 provider 时直接用 provider 里的节点，避免默认落到 DIRECT。
 		newGroup["use"] = toStringAnySlice(providerNames)
+	} else {
+		newGroup["proxies"] = toStringAnySlice(append([]string{"DIRECT"}, proxyNames...))
+		if len(providerNames) > 0 {
+			newGroup["use"] = toStringAnySlice(providerNames)
+		}
 	}
 	dst.SetTop("proxy-groups", append(groups, newGroup))
 	*warnings = append(*warnings, "导入配置没有 PROXY 组，已自动创建")
+	dst.EnsureProviderRouting()
 }

@@ -385,7 +385,161 @@ func (d *Doc) AddProvider(spec ProviderSpec) error {
 	}
 	providers[name] = entry
 	d.SetTop("proxy-providers", providers)
+	// 开箱即用：新增 provider 后自动挂到 PROXY 组，用户不必再手工建组/加节点。
+	d.attachProviderToProxyGroup(name)
 	return nil
+}
+
+// attachProviderToProxyGroup 把新 provider 加入 PROXY 组的 use 列表；如果 PROXY
+// 还是默认的“只有 DIRECT”，改为引用自动选择组，避免默认落到订阅里的占位节点
+// （部分机场第一个节点是 server: 0.0.0.0 的流量信息节点）。
+func (d *Doc) attachProviderToProxyGroup(name string) {
+	d.EnsureProviderRouting()
+}
+
+// EnsureQUICFallback 在规则末尾插入“拒绝 UDP 443”，强制浏览器从 QUIC 回退 TCP。
+// 部分机场 TCP 可用但 UDP 转发不通，浏览器会长时间卡在 QUIC 上。
+func (d *Doc) EnsureQUICFallback() bool {
+	rules := d.GetStringSlice("rules")
+	for _, r := range rules {
+		compact := strings.ReplaceAll(strings.ToUpper(r), " ", "")
+		if strings.Contains(compact, "NETWORK,UDP") && strings.Contains(compact, "DST-PORT,443") {
+			return false
+		}
+	}
+	const quicRule = "AND,((NETWORK,udp),(DST-PORT,443)),REJECT"
+	idx := len(rules)
+	for i, r := range rules {
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(r)), "MATCH,") {
+			idx = i
+			break
+		}
+	}
+	rules = append(rules, "")
+	copy(rules[idx+1:], rules[idx:])
+	rules[idx] = quicRule
+	d.SetTop("rules", toStringAnySlice(rules))
+	return true
+}
+
+// EnsureProviderRouting 保证“有 proxy-provider 就能直接用”：
+// PROXY 组会引用 provider，且在 PROXY 没有显式节点时使用自动选择组。
+func (d *Doc) EnsureProviderRouting() bool {
+	providerNames := d.providerNames()
+	if len(providerNames) == 0 {
+		return false
+	}
+	groupsVal, ok := d.Get("proxy-groups")
+	groups, ok := groupsVal.([]any)
+	if !ok {
+		groups = []any{}
+	}
+	changed := false
+	needAuto := false
+	for i, g := range groups {
+		gm, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		if groupName, _ := gm["name"].(string); groupName != "PROXY" {
+			continue
+		}
+		uses := toStringSlice(gm["use"])
+		useSet := map[string]bool{}
+		for _, u := range uses {
+			useSet[u] = true
+		}
+		for _, p := range providerNames {
+			if !useSet[p] {
+				uses = append(uses, p)
+				useSet[p] = true
+				changed = true
+			}
+		}
+		gm["use"] = toStringAnySlice(uses)
+		members := toStringSlice(gm["proxies"])
+		if len(members) == 0 || (len(members) == 1 && members[0] == "DIRECT") {
+			gm["proxies"] = toStringAnySlice([]string{"自动选择"})
+			needAuto = true
+			changed = true
+		}
+		groups[i] = gm
+		d.SetTop("proxy-groups", groups)
+		if needAuto {
+			d.ensureAutoSelectGroup(providerNames)
+		}
+		return changed
+	}
+	d.SetTop("proxy-groups", append(groups, map[string]any{
+		"name":    "PROXY",
+		"type":    "select",
+		"proxies": toStringAnySlice([]string{"自动选择"}),
+		"use":     toStringAnySlice(providerNames),
+	}))
+	d.ensureAutoSelectGroup(providerNames)
+	return true
+}
+
+// ensureAutoSelectGroup 创建/更新顶层 url-test 组，用 provider 的健康检查自动选节点。
+func (d *Doc) ensureAutoSelectGroup(providerNames []string) string {
+	const autoName = "自动选择"
+	groupsVal, _ := d.Get("proxy-groups")
+	groups, _ := groupsVal.([]any)
+	for i, g := range groups {
+		gm, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		if groupName, _ := gm["name"].(string); groupName != autoName {
+			continue
+		}
+		uses := toStringSlice(gm["use"])
+		useSet := map[string]bool{}
+		for _, u := range uses {
+			useSet[u] = true
+		}
+		added := false
+		for _, p := range providerNames {
+			if !useSet[p] {
+				uses = append(uses, p)
+				useSet[p] = true
+				added = true
+			}
+		}
+		if added {
+			gm["use"] = toStringAnySlice(uses)
+			groups[i] = gm
+			d.SetTop("proxy-groups", groups)
+		}
+		return autoName
+	}
+	d.SetTop("proxy-groups", append(groups, map[string]any{
+		"name":      autoName,
+		"type":      "url-test",
+		"url":       "https://www.gstatic.com/generate_204",
+		"interval":  300,
+		"tolerance": 50,
+		"use":       toStringAnySlice(providerNames),
+	}))
+	return autoName
+}
+
+// providerNames 返回已配置 proxy-provider 的名称（排序保证输出稳定）。
+func (d *Doc) providerNames() []string {
+	v, ok := d.Get("proxy-providers")
+	if !ok {
+		return nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // DeleteProvider 删除 proxy-provider，返回是否存在。

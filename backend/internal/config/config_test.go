@@ -699,6 +699,30 @@ func TestSettingsAppsProviders(t *testing.T) {
 	if len(providers) != 1 || providers[0].Name != "sub" || providers[0].Interval != 3600 {
 		t.Fatalf("providers = %+v", providers)
 	}
+	groupsVal, _ := doc.Get("proxy-groups")
+	groups, _ := groupsVal.([]any)
+	if len(groups) == 0 {
+		t.Fatal("AddProvider 后应存在 PROXY 组")
+	}
+	gm, _ := groups[0].(map[string]any)
+	if uses := toStringSlice(gm["use"]); len(uses) != 1 || uses[0] != "sub" {
+		t.Fatalf("新增 provider 应自动挂到 PROXY.use: %v", gm)
+	}
+	if proxies := toStringSlice(gm["proxies"]); len(proxies) != 1 || proxies[0] != "自动选择" {
+		t.Fatalf("PROXY 应默认引用自动选择组: %v", gm)
+	}
+	var autoGroup map[string]any
+	for _, g := range groups {
+		if m, ok := g.(map[string]any); ok && m["name"] == "自动选择" {
+			autoGroup = m
+		}
+	}
+	if autoGroup == nil || autoGroup["type"] != "url-test" {
+		t.Fatalf("应创建 url-test 自动选择组: %v", groups)
+	}
+	if uses := toStringSlice(autoGroup["use"]); len(uses) != 1 || uses[0] != "sub" {
+		t.Fatalf("自动选择组应使用 provider: %v", autoGroup)
+	}
 	if !doc.DeleteProvider("sub") || len(doc.Providers()) != 0 {
 		t.Fatal("删除 provider 失败")
 	}
