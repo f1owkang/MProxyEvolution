@@ -242,7 +242,7 @@ fi
 # 数据目录与旧配置
 # ---------------------------------------------------------------------------
 mkdir -p "$MPROXY_DATA/bin" "$MPROXY_DATA/state" "$MPROXY_DATA/logs" \
-	"$MPROXY_DATA/cache" "$MPROXY_DATA/providers" "$MPROXY_DATA/ruleset" \
+	"$MPROXY_DATA/cache" "$MPROXY_DATA/providers" "$MPROXY_DATA/rules" \
 	|| die "创建数据目录失败 / cannot create data dir"
 
 if [ -x "$MPROXY_DATA/bin/mproxy" ]; then
@@ -266,8 +266,9 @@ fi
 
 chown -R 0:0 "$MPROXY_DATA" 2>/dev/null || true
 chmod 0755 "$MPROXY_DATA" "$MPROXY_DATA/bin" "$MPROXY_DATA/logs" \
-	"$MPROXY_DATA/cache" "$MPROXY_DATA/providers" "$MPROXY_DATA/ruleset" 2>/dev/null || true
+	"$MPROXY_DATA/cache" "$MPROXY_DATA/providers" "$MPROXY_DATA/rules" 2>/dev/null || true
 chmod 0700 "$MPROXY_DATA/state" 2>/dev/null || true
+rmdir "$MPROXY_DATA/ruleset" 2>/dev/null || true
 [ -f "$MPROXY_DATA/state/token" ] && chmod 0600 "$MPROXY_DATA/state/token" 2>/dev/null || true
 
 find "$MODPATH" -type f -name '*.sh' -exec chmod 0755 {} \; 2>/dev/null || true

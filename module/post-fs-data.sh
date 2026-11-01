@@ -9,12 +9,13 @@ mkdir -p "$MPROXY_DATA/bin" \
          "$MPROXY_DATA/logs" \
          "$MPROXY_DATA/cache" \
          "$MPROXY_DATA/providers" \
-         "$MPROXY_DATA/ruleset" 2>/dev/null
+         "$MPROXY_DATA/rules" 2>/dev/null
 
 chmod 0755 "$MPROXY_DATA" 2>/dev/null
 chmod 0755 "$MPROXY_DATA/bin" "$MPROXY_DATA/logs" "$MPROXY_DATA/cache" \
-           "$MPROXY_DATA/providers" "$MPROXY_DATA/ruleset" 2>/dev/null
+           "$MPROXY_DATA/providers" "$MPROXY_DATA/rules" 2>/dev/null
 chmod 0700 "$MPROXY_DATA/state" 2>/dev/null
+rmdir "$MPROXY_DATA/ruleset" 2>/dev/null || true
 
 # 开启 IPv4 转发（TUN 模式需要；后端启动时也会再设置一次）
 echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null

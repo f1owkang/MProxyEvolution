@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)">
 <title>MihomoProxy Evolution</title>
 <!--
   MihomoProxy Evolution bootstrap（零依赖、无外部资源、非 ES module）
@@ -11,7 +13,7 @@
   运行环境：KernelSU / KernelSU Next WebView（提供 window.ksu.exec 三参数回调）
 -->
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; }
   body {
@@ -80,6 +82,20 @@
     bottom: calc(12px + env(safe-area-inset-bottom));
     text-align: center; font-size: 11px; color: #4b5563;
   }
+  /* 跟随系统深色/浅色模式（KernelSU WebView 继承系统 color-scheme）。 */
+  @media (prefers-color-scheme: light) {
+    body { background: #f6f8fa; color: #1f2328; }
+    .wrap { background: #ffffff; border-color: #d0d7de; box-shadow: 0 12px 40px rgba(31, 35, 40, .12); }
+    .logo { box-shadow: 0 6px 18px rgba(31, 35, 40, .12); }
+    .sub, .hint { color: #57606a; }
+    .status.error #status-text { color: #cf222e; }
+    .status.ok #status-text { color: #1a7f37; }
+    .spinner { border-color: rgba(87, 96, 106, .25); border-top-color: #0969da; }
+    .detail { color: #cf222e; background: #ffebe9; border-color: #ff8182; }
+    .retry { background: #0969da; }
+    .retry:active { background: #0550ae; }
+    .footer { color: #8c959f; }
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -94,7 +110,7 @@
       <span id="status-text">正在启动后端…</span>
     </div>
 
-    <p class="hint" id="hint">首次启动约需 5–20 秒，请稍候</p>
+    <p class="hint" id="hint">打开面板不会自动启动内核；请用模块页「执行」按钮开启或关闭。</p>
     <pre class="detail" id="detail" hidden></pre>
 
     <button class="retry" id="retry" type="button" hidden>重试</button>

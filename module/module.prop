@@ -3,5 +3,5 @@ name=MihomoProxy Evolution
 version=0.1.0
 versionCode=1
 author=f1owkang
-description=mihomo 内核 + zashboard 面板的 KernelSU/Magisk 网络代理模块，全 WebUI 管理，TUN 透明代理、订阅导入、应用分流，只维护一份 /data/adb/mproxy/config.yaml。 | A KernelSU/Magisk network proxy module powered by mihomo and the zashboard panel: TUN transparent proxy, subscription import and per-app routing, all managed in the built-in WebUI with a single /data/adb/mproxy/config.yaml.
+description=mihomo 内核 + zashboard 面板的 KernelSU/Magisk 网络代理模块。 | A KernelSU/Magisk network proxy module powered by mihomo and the zashboard panel.
 updateJson=https://raw.githubusercontent.com/f1owkang/MProxyEvolution/main/update.json
