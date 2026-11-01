@@ -7,7 +7,6 @@
 *.bash text eol=lf
 *.txt text eol=lf
 module/** text eol=lf
-overlay/** text eol=lf
 backend/** text eol=lf
 .github/** text eol=lf
 
@@ -31,6 +30,7 @@ backend/** text eol=lf
 *.html text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
+.gitmodules text eol=lf
 .editorconfig text eol=lf
 .prettierrc.json text eol=lf
 .prettierignore text eol=lf

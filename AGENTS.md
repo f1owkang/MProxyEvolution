@@ -32,7 +32,6 @@ MProxyEvolution 是 KernelSU / Magisk 网络代理模块：mihomo 负责代理�
 | :-- | :-- |
 | `upstream/mihomo/` | git submodule：mihomo 源码，只允许固定 release tag（当前 `v1.19.33`） |
 | `panel` 分支 / `panel.lock` | zashboard fork：完整上游历史 + MProxyEvolution commit；`panel.lock` 固定构建 commit |
-| `overlay/zashboard/` | 迁移前历史参考，构建不读取；确认 fork 推送后可删除 |
 | `backend/` | Go 后端：`server`（HTTP/鉴权/反代/静态）→ `config`（YAML/校验/导入/设置）→ `core`（进程/更新）→ `sysutil`（路径/进程） |
 | `module/` | 安装/服务脚本、`module.prop`、bootstrap 页 `webroot/index.html` |
 | `scripts/` | `dev-panel.*` 检出 panel commit；`build.*` 构建打包 |
@@ -71,8 +70,8 @@ MProxyEvolution 是 KernelSU / Magisk 网络代理模块：mihomo 负责代理�
     失败时脚本回退 `--no-frozen-lockfile --ignore-scripts`。
   - 完整构建含 4 个 mihomo 变体，耗时明显；只改后端/脚本时用 `--skip-panel --skip-core`。
 - 面板 fork：`bash scripts/dev-panel.sh --prepare|--build|--all`（Windows 用 `dev-panel.ps1`）。脚本用
-  `git worktree` 按 `panel.lock` 检出到 `build/panel`，不覆盖 overlay、不 apply patch；`build/panel` 是
-  生成目录，不要在里面长期改代码。
+  `git worktree` 按 `panel.lock` 检出到 `build/panel`，不 apply patch；`build/panel` 是生成目录，
+  不要在里面长期改代码。
 - 面板改动流程：在 `panel` 分支改 → `cd build/panel && pnpm run type-check && pnpm run build` → 提交 panel
   分支 → 更新 `panel.lock`（新 commit SHA）→ **push `origin panel`**（CI 只 fetch origin 上的 panel commit，
   不 push 会导致 CI 取不到）。上游升级是在 `panel` 分支 `git merge <zashboard-tag>`，冲突由人处理；
@@ -283,8 +282,8 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 
 ### 面板 fork 与 submodule
 
-- 只允许通过 `panel` 分支提交面板改动；`upstream/zashboard` submodule 已不是构建来源。`panel.lock` 是面板
-  构建版本的唯一权威；构建脚本按它检出 worktree。
+- 只允许通过 `panel` 分支提交面板改动；`upstream/zashboard` submodule 已移除（面板 fork 在 `panel` 分支）。
+  `panel.lock` 是面板构建版本的唯一权威；构建脚本按它检出 worktree。
 - `upstream/mihomo` 只允许指向 release tag 对应的 commit；不要 `git submodule update --remote`（当前
   `v1.19.33`，mihomo main 曾出现不可靠状态，这是硬性策略）。不要在 submodule 内提交或改写历史，
   不要提交 submodule 里的 node_modules/dist。
