@@ -267,6 +267,10 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
       局域网回包，放行后 MCP/ADB/LAN 服务才不会断），再按 `tun.include-package`/`exclude-package`
       解析 `/data/system/packages.list` 得到 UID：白名单只 mark 列出的 UID，黑名单 RETURN 列出的 UID
       后 mark 其余；应用分流条目无法解析时手工接管直接失败（不回退成“全局标记”）。
+    - 在 mark 之前必须放行本机直连网段（`sysutil.LocalIPv4CIDRs()`，如 wlan0 的 192.168.31.0/24）、
+      `224.0.0.0/4`、`255.255.255.255/32`、`169.254.0.0/16`：LocalSend（224.0.0.167:53317）、
+      小米互传、mDNS/SSDP/DLNA 依赖组播/广播/局域网直连，被 mark 进 TUN 会收不到发现报文。
+      DNS（UDP/TCP 53）要在放行直连网段之前单独 mark，保证局域网 DNS 也走 dns-hijack。
       不要用 `--gid-owner 3005` 排除 mihomo：该组只是附加组，部分内核上 iptables 只看主组，
       会导致 mihomo 出站被再次 mark 进 TUN，规则集下载表现为 `Get ...: EOF`。
     - iptables 统一 `-w 100` 等锁；默认路由按 akashaProxy 的做法有限次重试；`ipv6=false` 时写
