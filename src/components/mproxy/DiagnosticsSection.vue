@@ -85,12 +85,12 @@
 
         <div
           v-if="diagnostics?.checks?.length"
-          class="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2"
+          class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3"
         >
           <div
             v-for="check in diagnostics.checks"
             :key="check.name"
-            class="bg-base-200 rounded-lg px-3 py-2.5"
+            class="bg-base-200 rounded-lg p-3"
           >
             <div class="flex items-center gap-1.5 text-xs font-medium">
               <span
