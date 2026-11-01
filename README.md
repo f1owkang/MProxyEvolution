@@ -115,13 +115,13 @@ KernelSU / Magisk WebView
 <details>
 <summary>第一次打开没有节点、无法上网？</summary>
 
-默认配置是直连模式：未导入订阅时 `PROXY` 组只有 `DIRECT`。内置规则集（广告拦截、私有网络、苹果服务、哔哩哔哩、国内域名、国内 IP）会在首次启动或超过 `interval`（默认 1 天）时从 GitHub 下载；下载失败不会阻止内核启动，只是对应规则暂时不生效，未命中的流量按最后的 `MATCH,PROXY` 直连。进入 MihomoProxy Evolution → 订阅导入 Clash 订阅（URL、文件或粘贴完整配置，支持合并 / 替换），保存后到「内核」确认已启动，再到「节点」选择节点；导入订阅会用订阅自带的 `rules` 整体替换默认规则。
+默认配置是直连模式：未导入订阅时 `PROXY` 组只有 `DIRECT`。内置规则集（广告拦截、私有网络、苹果服务、哔哩哔哩、国内域名、国内 IP）会在首次启动或超过 `interval`（默认 1 天）时由 mihomo 从 jsDelivr 镜像按 mrs 格式下载并缓存到 `rules/`；下载失败不会阻止内核启动，只是对应规则暂时不生效，未命中的流量按最后的 `MATCH,PROXY` 直连。进入 MihomoProxy Evolution → 订阅导入 Clash 订阅（URL、文件或粘贴完整配置，支持合并 / 替换），保存后到「内核」确认已启动，再到「节点」选择节点；导入订阅会用订阅自带的 `rules` 整体替换默认规则。
 </details>
 
 <details>
 <summary>不想让某类流量走默认规则怎么办？</summary>
 
-默认分流由远程规则集驱动：编辑 `/data/adb/mproxy/config.yaml`，在 `rules:` 段注释或删除对应的 `RULE-SET` 行即可关闭该类规则（例如关闭广告拦截就注释 `RULE-SET,广告拦截,REJECT`）；要连下载一起停掉，再删除 `rule-providers:` 里的同名项。GitHub 不可达时可给规则集的 `url` 加镜像前缀（如 `https://ghfast.top/` + 原地址），或保留 `proxy: PROXY` 让规则集经当前节点下载（导入订阅后生效）。
+默认分流由远程规则集驱动：编辑 `/data/adb/mproxy/config.yaml`，在 `rules:` 段注释或删除对应的 `RULE-SET` 行即可关闭该类规则（例如关闭广告拦截就注释 `RULE-SET,广告拦截,REJECT`）；要连下载一起停掉，再删除 `rule-providers:` 里的同名项。默认已使用 jsDelivr 镜像与 mrs 格式；如需换镜像可修改规则集的 `url`。保留 `proxy: PROXY` 可让规则集经当前节点下载（导入订阅后生效）。
 </details>
 
 <details>

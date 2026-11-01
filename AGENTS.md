@@ -132,6 +132,7 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - 已有 `config.yaml` 绝不覆盖；升级时先 `mproxy stop`，二进制写 `.new` 再 `mv`（避免 `Text file busy`）。
 - `service.sh` 等 `sys.boot_completed=1`（最多约 120s）再 `mproxy boot --boot`，有 `timeout` 时包裹 180s；
   日志追加 `logs/service.log`；控制台输出中文短句，平台差异用能力探测而非管理器类型硬编码。
+- `webroot/index.html` 引导页跟随系统浅色/深色（`prefers-color-scheme` + `theme-color`），并明确提示“打开 WebUI 不启动内核”。
 - `action.sh` 调 `mproxy action`：运行中则停止；未运行时拉起后端并**阻塞等待**内核就绪
   （控制器可达；TUN 开启时还要求 controller 报告 `tunEnabled=true`），失败打印原因与内核/后端日志尾部并
   返回非 0；外层 `timeout 180` 兜底。不要把这里退回成只调用 `mproxy toggle` 后立刻成功。
@@ -145,14 +146,17 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   `ipv6` 与 `dns.ipv6`，变更会触发内核重启。
 - `tun.enable` 与 `x-mproxy.proxy-mode` 必须一致（tun ↔ true，mixed ↔ false）；`tun.include-package`
   存在即白名单，`exclude-package` 存在即黑名单，互斥。
-- 默认模板分流用远程 `rule-providers`：URL 指向后端本地代下载接口
-  `http://127.0.0.1:9091/rules/<name>.yaml?src=<raw.githubusercontent.com URL>`，由后端用内嵌 CA +
-  镜像回退（gh-proxy / ghfast / jsDelivr）抓取后以本机 HTTP 提供给 mihomo；mihomo 不再直接访问外网，
-  可绕开 Android 静态二进制的 `x509: certificate signed by unknown authority` 与 GitHub EOF。
-  只允许 `MetaCubeX/meta-rules-dat` 的 https raw URL（`validRuleSource`），不要开放任意 URL 代抓。
-  不要内联大段域名规则；`rules` 里的 `RULE-SET` 必须引用已定义规则集，目标必须是内置策略或
-  `proxy-groups` 里的组。不要用 `GEOIP`/`GEOSITE`：`mihomo -t` 解析时会尝试下载 geodata，离线校验
-  （45s 超时）会失败。默认模板不得写入用户私有机场域名/节点；不要新增启动时自动改用户 URL 的迁移逻辑。
+- 默认模板分流用远程 `rule-providers`：URL 指向 **jsDelivr 上的 mrs 规则集**
+  （`https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/...`，`format: mrs`），由 mihomo 自己下载、
+  校验 TLS（依赖后端写入的 `SSL_CERT_FILE`）并缓存到 `<dataDir>/rules/*.mrs`，后端不再代理规则集下载。
+  `proxy: PROXY` 表示经当前出口下载（未导入订阅时等于 DIRECT）。不要内联大段域名规则；`rules` 里的
+  `RULE-SET` 必须引用已定义规则集，目标必须是内置策略或 `proxy-groups` 里的组。不要用
+  `GEOIP`/`GEOSITE`：`mihomo -t` 解析时会尝试下载 geodata，离线校验（45s 超时）会失败。默认模板不得
+  写入用户私有机场域名/节点；不要新增启动时自动改用户 URL 的迁移逻辑。
+- DNS 的 `fake-ip-filter` / `nameserver-policy` 优先用 `rule-set:<provider>` 引用内置规则集（不要再堆
+  大段内联域名）；新增 `rule-set:` 引用时必须指向已定义的 `rule-providers`，否则 mihomo 启动失败。
+- 规则集缓存位置由 mihomo 自己管理（`path: ./rules/*.mrs`，相对 `<dataDir>`）；`Paths.RulesDir()` 只用于
+  建目录，后端不再读写规则集内容。
 - `update.json` 与 `.release-baseline` 发版后由 CI 回写，不要手改。
 
 ### 文档与行尾
@@ -179,10 +183,12 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   **白名单外的顶层键（allow-lan、external-controller、secret、端口、tun、dns 等）一律忽略**，`x-mproxy`
   永远以当前配置为准；`replace` 保留 `x-mproxy` 与缺失的控制器/secret。只支持 Clash/mihomo YAML，
   检测到 sing-box 配置报错。
+- 新增 proxy-provider（`Doc.AddProvider`）时自动把 provider 加进 PROXY 组的 `use`；若 PROXY 仍只有默认 `DIRECT`/没有显式节点，改为引用顶层 `自动选择`（url-test，health-check）组，避免订阅里的占位节点（如 server 0.0.0.0）成为默认出口。订阅导入、后端启动时也会执行 `EnsureProviderRouting` 迁移。
 - 分流只写 `tun.include-package`/`exclude-package`：`all` 删除两者，白/黑名单为空报错，
   `PUT /api/mproxy/apps` 显式重启内核。provider 名称不能含 `/`、`\`，URL 必须 http(s)，
   `interval` 默认 86400，`path` 默认 `./providers/<name>.yaml`。
 - `ghproxy` 必须以 `/` 结尾（后端会补）且只接受 http(s)，只做下载前缀拼接，不改写 API 请求。
+
 
 ### 同源代理与 token
 
@@ -219,18 +225,26 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
   - TUN 残留清理必须“安全优先”：仅 Android、TUN 开启、上次异常退出、内核/外部实例未运行、controller
     不可达、设备存在且设备名恰为 mihomo 默认 `Meta` 时才允许 `ip link del`；自定义设备名只记录并跳过，
     任何清理失败都只告警，不得阻断启动。
-- `boot`：先探测 `/healthz`，未启动则 detached 拉起 `serve`，20s 内轮询，最后输出带 token 的面板地址；
+- `boot`：先探测 `/healthz`，未启动则以 `MPROXY_NO_AUTOSTART=1` detached 拉起 `serve`；**默认不启动内核**（打开 WebUI 不等于启动代理，启停只由模块「执行」按钮/`action` 完成）。仅 `boot --boot`（service.sh 开机路径）允许按 `auto-start` 拉起内核，并最多等 12s 让内核/控制器/TUN 就绪再输出面板地址；
   `status` 未运行返回非 0，`stop` 先内核后后端，`toggle` 切换。
 - TUN 启动前保持 `tun.auto-detect-interface` 不变（默认 true，由 mihomo 自行探测出口网卡）；仅当用户显式
   关闭 auto-detect 且顶层 `interface-name` 为空时，后端才写入探测到的 `interface-name`。**例外**：手工
   TUN 模式（`tun.auto-route=false`）必须关闭 auto-detect 并写死 `interface-name`，否则 mihomo 会反复
   打印空网卡警告、出站 DNS 报 `no such device`；探测顺序为 `/proc/net/route`/`ip route` → `ip route get`。
+- 参考 akashaProxy：默认 TUN 使用 mihomo 原生 `auto-route` + `auto-redirect` + `strict-route`，
+  `auto-detect-interface: false` 并由后端写死 `interface-name`。旧的手工 TUN 配置会在
+  `state/tun_native_trial` 不存在时做一次原生试运行；若 mihomo v1.19.33 因原生 TUN 失败 panic
+  （`exit status 2`），`autoStartCore` 立即调用 `EnableManualTUNFallback` 回退手工策略路由并保留标记，
+  不会反复用原生配置重试。手工 TUN 仍是兜底，不要在未验证前删除 fallback。
 - 内核更新：GitHub release API（`MetaCubeX/mihomo`）→ stable 只取非 prerelease、alpha 取最新 → 按
   `GOOS/GOARCH/GOARM` 匹配资产 →（可加 ghproxy）下载 → 解压（gz/zip/裸二进制）→ 原子替换 `bin/mihomo` →
   `mihomo -v` 校验 → 按需重启；失败尽量恢复旧内核。进度走 `/api/jobs`。版本号从 `mihomo -v` 或 controller
   `/version` 解析（有缓存，更新后清除）。pid 文件是状态来源但要能接管已有进程，不要只看 pid 文件。
 - 下载客户端内嵌 Mozilla CA 根证书（`internal/download/cacert.pem`）并叠加系统根池，修复 Android 上静态
   二进制读不到系统证书导致的 `x509: certificate signed by unknown authority`。
+- 后端启动时把内嵌 CA 写到 `<dataDir>/cacert.pem`，并设置 `SSL_CERT_FILE` 后再启动 mihomo；mihomo 的
+  Go `crypto/x509` 会读取该环境变量。不要试图用动态链接/CGO 修证书问题：Go 静态与动态二进制的
+  x509 根池逻辑相同，CGO 只影响 DNS/用户解析，不会换成系统 OpenSSL 校验。
 
 ### TUN、DNS 与分流
 
@@ -243,7 +257,7 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - TUN 启动前按 `x-mproxy.private-dns` 决定是否临时保存并关闭系统 Private DNS（`state/private_dns`，
   0600，已存在不覆盖）：`auto`（默认）关闭，`keep` 完全不动系统设置；停止或自愈失败时**始终**按状态
   文件恢复原值（与当前设置无关），不要覆盖用户原始模式，也不要让它长期停留在 off。
-- IPv6 默认关闭（`x-mproxy.ipv6=false`）：开启后后端在内核启动时尽力写 `/proc/sys/net/ipv6/conf/{all,default}/forwarding`
+- IPv6 默认关闭（`x-mproxy.ipv6=false`）：手工 TUN 模式会保存并临时关闭系统各接口 IPv6（`state/ipv6_disabled`，停止时恢复），并用 ip6tables 拒绝应用侧 IPv6，防止 Happy Eyeballs 绕过代理；开启后后端在内核启动时尽力写 `/proc/sys/net/ipv6/conf/{all,default}/forwarding`
   = 1（失败只告警），`post-fs-data.sh` 也做一次 best-effort；关闭时不要额外改 IPv6 转发/DNS。
 - Android TUN 启动兼容（参考 akashaProxy / box4magisk / tunclash）：
   - 启动 mihomo 前受控清理 sing-tun 默认策略路由残留：`ip rule del pref 9000/9001/9010` 与
@@ -272,6 +286,7 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
       DNS（UDP/TCP 53）要在放行直连网段之前单独 mark，保证局域网 DNS 也走 dns-hijack。
       不要用 `--gid-owner 3005` 排除 mihomo：该组只是附加组，部分内核上 iptables 只看主组，
       会导致 mihomo 出站被再次 mark 进 TUN，规则集下载表现为 `Get ...: EOF`。
+    - `ipv6=false` 时必须同时用 ip6tables OUTPUT 拒绝应用侧 IPv6（放行 ::1/链路本地/组播与 root），否则应用会 Happy Eyeballs 直连海外 IPv6、绕过手工 TUN，表现为国内正常海外超时。
     - iptables 统一 `-w 100` 等锁；默认路由按 akashaProxy 的做法有限次重试；`ipv6=false` 时写
       `/proc/sys/net/ipv6/conf/<tun>/disable_ipv6=1`。手工模式目前只接管 IPv4，`x-mproxy.ipv6=true`
       时必须记录“IPv6 未由手工模式接管”的告警。
@@ -295,7 +310,7 @@ bash scripts/dev-panel.sh --build && cd build/panel && pnpm run type-check && pn
 - 订阅与节点配置含敏感凭据：不要打印 token/secret，不要把 `config.yaml`、`state/token`、`logs/` 提交或上传；
   诊断接口/诊断包只含路径、摘要与日志尾部。
 - 不引入远程脚本、CDN、遥测或上传；后端只出站访问 GitHub release、订阅 URL 与本机 mihomo controller
-  （mihomo 内核自身会按默认配置下载 GitHub raw 上的远程规则集，失败只告警、不阻断启动）。
+  （mihomo 内核自身会按默认配置从 jsDelivr 下载 mrs 规则集，失败只告警、不阻断启动）。
 - 不要提交 `build/`、`dist/`、`*.zip`、`backend/internal/webui/dist` 构建资产、`.devdata/`、日志、签名或密钥。
 
 ## CI 与发版

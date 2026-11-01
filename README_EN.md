@@ -115,13 +115,13 @@ Check that `/data/adb/mproxy/bin/mproxy` exists and is executable, run `/data/ad
 <details>
 <summary>No nodes on first launch, or no internet access?</summary>
 
-The default config is direct mode: with no subscription imported, the `PROXY` group contains only `DIRECT`. The built-in rule sets (ads, private network, Apple services, Bilibili, China domains, China IPs) are downloaded from GitHub on first start or once `interval` (1 day by default) has passed. A failed download never blocks the kernel from starting — the affected rules are just inactive for now, and unmatched traffic follows the final `MATCH,PROXY` (direct). Open MihomoProxy Evolution → Subscription and import your Clash subscription (URL, file, or paste a full config; merge or replace), then make sure the kernel is running under "Kernel" and pick a node under "Proxies"; importing a subscription replaces the default rules with the subscription's own `rules`.
+The default config is direct mode: with no subscription imported, the `PROXY` group contains only `DIRECT`. The built-in rule sets (ads, private network, Apple services, Bilibili, China domains, China IPs) are downloaded by mihomo from the jsDelivr mirror in mrs format on first start or once `interval` (1 day by default) has passed, and cached under `rules/`. A failed download never blocks the kernel from starting — the affected rules are just inactive for now, and unmatched traffic follows the final `MATCH,PROXY` (direct). Open MihomoProxy Evolution → Subscription and import your Clash subscription (URL, file, or paste a full config; merge or replace), then make sure the kernel is running under "Kernel" and pick a node under "Proxies"; importing a subscription replaces the default rules with the subscription's own `rules`.
 </details>
 
 <details>
 <summary>How do I turn off a specific kind of rule?</summary>
 
-The default routing is driven by remote rule sets. Edit `/data/adb/mproxy/config.yaml` and comment out or delete the matching `RULE-SET` line under `rules:` to disable that category (for example, comment out `RULE-SET,广告拦截,REJECT` to stop ad blocking); to also stop its download, delete the same entry under `rule-providers:`. If GitHub is unreachable, prefix the rule set `url` with a mirror (e.g. `https://ghfast.top/` + the original URL), or keep `proxy: PROXY` so rule sets are downloaded through the current node (effective after importing a subscription).
+The default routing is driven by remote rule sets. Edit `/data/adb/mproxy/config.yaml` and comment out or delete the matching `RULE-SET` line under `rules:` to disable that category (for example, comment out `RULE-SET,广告拦截,REJECT` to stop ad blocking); to also stop its download, delete the same entry under `rule-providers:`. The template already uses the jsDelivr mirror and mrs format; change the rule set `url` to use another mirror. Keep `proxy: PROXY` so rule sets are downloaded through the current node (effective after importing a subscription).
 </details>
 
 <details>
