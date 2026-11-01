@@ -4,57 +4,81 @@
       :title="t('mproxyImportSubscription')"
       :description="t('mproxyImportDesc')"
     >
-      <div class="flex flex-col gap-3">
-        <label class="form-control">
-          <span class="text-base-content/60 mb-1 text-xs">{{ t('mproxySubscriptionUrl') }}</span>
-          <div class="flex flex-col gap-2 sm:flex-row">
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          v-for="item in modeOptions"
+          :key="item.value"
+          type="button"
+          class="rounded-xl border p-3 text-left transition"
+          :class="
+            mode === item.value
+              ? 'border-primary/50 bg-primary/5 ring-primary/25 ring-1'
+              : 'border-base-border bg-base-200/40 hover:bg-base-200/70'
+          "
+          @click="mode = item.value"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold">{{ item.label }}</span>
+            <span
+              v-if="mode === item.value"
+              class="text-primary text-sm font-semibold"
+              >✓</span
+            >
+          </div>
+          <p class="text-base-content/55 mt-1 text-xs leading-4">
+            {{ item.hint }}
+          </p>
+        </button>
+      </div>
+
+      <div class="mt-3 grid grid-cols-3 gap-2">
+        <button
+          v-for="item in sourceOptions"
+          :key="item.value"
+          type="button"
+          class="rounded-lg border px-2 py-2 text-xs font-medium transition"
+          :class="
+            source === item.value
+              ? 'border-primary/50 bg-primary/10 text-primary'
+              : 'border-base-border bg-base-200/40 text-base-content/70 hover:bg-base-200/70'
+          "
+          @click="source = item.value"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+
+      <div class="border-base-border bg-base-200/40 mt-3 rounded-xl border p-3">
+        <template v-if="source === 'url'">
+          <label class="form-control">
+            <span class="text-base-content/60 mb-1 text-xs">{{ t('mproxySubscriptionUrl') }}</span>
             <input
               v-model="importUrl"
               type="url"
-              class="input input-sm flex-1"
+              class="input input-sm w-full"
               placeholder="https://example.com/subscribe?token=…"
               spellcheck="false"
             />
-            <button
-              class="btn btn-primary btn-sm"
-              :disabled="importing || !importUrl.trim()"
-              @click="importFromUrl"
-            >
-              {{ importing ? t('mproxyImporting') : t('mproxyImportLink') }}
-            </button>
-          </div>
-        </label>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-base-content/60 text-xs">{{ t('mproxyImportMode') }}</span>
-          <div class="join">
-            <button
-              class="join-item btn btn-xs"
-              :class="mode === 'merge' ? 'btn-active' : ''"
-              @click="mode = 'merge'"
-            >
-              {{ t('mproxyMerge') }}
-            </button>
-            <button
-              class="join-item btn btn-xs"
-              :class="mode === 'replace' ? 'btn-active' : ''"
-              @click="mode = 'replace'"
-            >
-              {{ t('mproxyReplace') }}
-            </button>
-          </div>
-          <span class="text-base-content/45 text-xs">
-            {{ mode === 'merge' ? t('mproxyMergeHint') : t('mproxyReplaceHint') }}
-          </span>
-        </div>
-
-        <div class="flex flex-wrap gap-2">
+          </label>
           <button
-            class="btn btn-sm"
+            class="btn btn-primary btn-sm mt-2 w-full"
+            :disabled="importing || !importUrl.trim()"
+            @click="importFromUrl"
+          >
+            {{ importing ? t('mproxyImporting') : t('mproxyImportLink') }}
+          </button>
+        </template>
+
+        <template v-else-if="source === 'file'">
+          <p class="text-base-content/60 text-xs leading-4">
+            {{ t('mproxyImportDesc') }}
+          </p>
+          <button
+            class="btn btn-primary btn-sm mt-2 w-full"
             :disabled="importing"
             @click="fileInput?.click()"
           >
-            {{ t('mproxyImportFromFile') }}
+            {{ importing ? t('mproxyImporting') : t('mproxyImportFromFile') }}
           </button>
           <input
             ref="fileInput"
@@ -63,16 +87,9 @@
             accept=".yaml,.yml,.txt,.conf"
             @change="importFromFile"
           />
-          <button
-            class="btn btn-sm"
-            :disabled="importing"
-            @click="showPaste = !showPaste"
-          >
-            {{ showPaste ? t('mproxyPasteHide') : t('mproxyPasteShow') }}
-          </button>
-        </div>
+        </template>
 
-        <div v-if="showPaste">
+        <template v-else>
           <textarea
             v-model="pasteContent"
             class="textarea w-full scrollbar-thin font-mono text-xs"
@@ -80,24 +97,22 @@
             :placeholder="t('mproxyPastePlaceholder')"
             spellcheck="false"
           />
-          <div class="mt-2 flex justify-end">
-            <button
-              class="btn btn-primary btn-sm"
-              :disabled="importing || !pasteContent.trim()"
-              @click="importFromPaste"
-            >
-              {{ t('mproxyImportPaste') }}
-            </button>
-          </div>
-        </div>
+          <button
+            class="btn btn-primary btn-sm mt-2 w-full"
+            :disabled="importing || !pasteContent.trim()"
+            @click="importFromPaste"
+          >
+            {{ importing ? t('mproxyImporting') : t('mproxyImportPaste') }}
+          </button>
+        </template>
+      </div>
 
-        <div
-          v-if="importMessage"
-          class="alert py-2 text-xs"
-          :class="importError ? 'alert-error' : 'alert-success'"
-        >
-          {{ importMessage }}
-        </div>
+      <div
+        v-if="importMessage"
+        class="alert mt-3 py-2 text-xs"
+        :class="importError ? 'alert-error' : 'alert-success'"
+      >
+        {{ importMessage }}
       </div>
     </SectionCard>
 
@@ -117,50 +132,54 @@
 
       <div
         v-if="providerError"
-        class="alert alert-warning mb-2 py-2 text-xs"
+        class="alert alert-warning mb-3 py-2 text-xs"
       >
         {{ providerError }}
       </div>
 
       <div
         v-if="providers.length"
-        class="divide-base-border divide-y"
+        class="grid grid-cols-1 gap-2 sm:grid-cols-2"
       >
         <div
           v-for="provider in providers"
           :key="provider.name"
-          class="flex items-center gap-2 py-2"
+          class="border-base-border bg-base-200/40 rounded-xl border p-3"
         >
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-sm font-medium">
-              {{ provider.name }}
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm font-medium">
+                {{ provider.name }}
+              </div>
+              <div class="text-base-content/50 mt-0.5 text-xs">
+                {{ provider.vehicleType || 'provider' }}
+                <template v-if="provider.updatedAt">
+                  · {{ t('mproxyUpdatedAt', { time: formatTime(provider.updatedAt) }) }}
+                </template>
+              </div>
             </div>
-            <div class="text-base-content/50 text-xs">
-              {{ provider.vehicleType || 'provider' }}
-              <template v-if="provider.updatedAt">
-                · {{ t('mproxyUpdatedAt', { time: formatTime(provider.updatedAt) }) }}
-              </template>
-            </div>
+            <button
+              class="btn btn-ghost btn-xs text-error"
+              :disabled="deleting === provider.name"
+              @click="removeProvider(provider.name)"
+            >
+              {{ deleting === provider.name ? t('mproxyDeleting') : t('mproxyDelete') }}
+            </button>
           </div>
-          <button
-            class="btn btn-ghost btn-xs text-error"
-            :disabled="deleting === provider.name"
-            @click="removeProvider(provider.name)"
-          >
-            {{ deleting === provider.name ? t('mproxyDeleting') : t('mproxyDelete') }}
-          </button>
         </div>
       </div>
       <div
         v-else-if="!loadingProviders"
-        class="text-base-content/50 py-2 text-xs"
+        class="text-base-content/50 rounded-xl border border-dashed p-4 text-center text-xs"
       >
         {{ t('mproxyProvidersEmpty') }}
       </div>
 
-      <div class="border-base-border mt-3 border-t pt-3">
-        <div class="text-base-content/60 mb-2 text-xs">{{ t('mproxyAddProvider') }}</div>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <details class="border-base-border mt-3 rounded-xl border p-3">
+        <summary class="cursor-pointer text-xs font-medium">
+          {{ t('mproxyAddProvider') }}
+        </summary>
+        <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <input
             v-model="form.name"
             class="input input-sm"
@@ -184,10 +203,10 @@
             :placeholder="t('mproxyProviderPath')"
           />
         </div>
-        <div class="mt-2 flex items-center justify-between gap-2">
+        <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span class="text-base-content/45 text-xs">{{ t('mproxyProviderHint') }}</span>
           <button
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-sm w-full sm:w-auto"
             :disabled="adding || !form.name.trim() || !form.url.trim()"
             @click="addProvider"
           >
@@ -201,15 +220,14 @@
         >
           {{ providerMessage }}
         </div>
-      </div>
+      </details>
     </SectionCard>
   </div>
 </template>
-
 <script setup lang="ts">
 import { mproxyApi, type ImportMode, type MihomoProvider } from '@/api/mproxy'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -219,9 +237,18 @@ const emit = defineEmits<{
 }>()
 
 const mode = ref<ImportMode>('merge')
+const modeOptions = computed(() => [
+  { value: 'merge' as ImportMode, label: t('mproxyMerge'), hint: t('mproxyMergeHint') },
+  { value: 'replace' as ImportMode, label: t('mproxyReplace'), hint: t('mproxyReplaceHint') },
+])
+const sourceOptions = computed(() => [
+  { value: 'url' as const, label: t('mproxyImportLink') },
+  { value: 'file' as const, label: t('mproxyImportFromFile') },
+  { value: 'paste' as const, label: t('mproxyImportPaste') },
+])
 const importUrl = ref('')
 const pasteContent = ref('')
-const showPaste = ref(false)
+const source = ref<'url' | 'file' | 'paste'>('url')
 const importing = ref(false)
 const importMessage = ref('')
 const importError = ref(false)

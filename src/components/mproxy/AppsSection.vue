@@ -14,61 +14,100 @@
         </button>
       </template>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <div class="join">
-          <button
-            v-for="option in modeOptions"
-            :key="option.value"
-            class="join-item btn btn-xs"
-            :class="currentMode === option.value ? 'btn-active' : ''"
-            @click="currentMode = option.value"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-        <span class="text-base-content/45 text-xs">{{ modeHint }}</span>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <button
+          v-for="option in modeOptions"
+          :key="option.value"
+          type="button"
+          class="rounded-xl border p-3 text-left transition"
+          :class="
+            currentMode === option.value
+              ? 'border-primary/50 bg-primary/5 ring-primary/25 ring-1'
+              : 'border-base-border bg-base-200/40 hover:bg-base-200/70'
+          "
+          @click="currentMode = option.value"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold">{{ option.label }}</span>
+            <span
+              v-if="currentMode === option.value"
+              class="text-primary text-sm font-semibold"
+              >✓</span
+            >
+          </div>
+          <p class="text-base-content/55 mt-1 text-xs leading-4">
+            {{ option.hint }}
+          </p>
+        </button>
       </div>
 
       <template v-if="currentMode !== 'all'">
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <input
-            v-model="search"
-            class="input input-sm flex-1"
-            :placeholder="t('mproxyAppsSearch')"
-            spellcheck="false"
-          />
-          <button
-            class="btn btn-sm"
-            :disabled="loading"
-            @click="selectVisible"
-          >
-            {{ t('mproxySelectAll') }}
-          </button>
-          <button
-            class="btn btn-sm"
-            :disabled="loading || !selected.length"
-            @click="clearSelection"
-          >
-            {{ t('mproxyClear') }}
-          </button>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label class="input input-sm flex flex-1 items-center gap-2">
+            <span class="text-base-content/40 text-sm">⌕</span>
+            <input
+              v-model="search"
+              class="grow bg-transparent text-sm outline-none"
+              :placeholder="t('mproxyAppsSearch')"
+              spellcheck="false"
+            />
+          </label>
+          <div class="flex gap-2">
+            <button
+              class="btn btn-sm flex-1 sm:flex-none"
+              :disabled="loading"
+              @click="selectVisible"
+            >
+              {{ t('mproxySelectAll') }}
+            </button>
+            <button
+              class="btn btn-sm flex-1 sm:flex-none"
+              :disabled="loading || !selected.length"
+              @click="clearSelection"
+            >
+              {{ t('mproxyClear') }}
+            </button>
+          </div>
         </div>
 
-        <div class="text-base-content/50 mt-2 text-xs">
-          {{ t('mproxyAppsSelected', { selected: selected.length, total: packages.length }) }}
-          <span v-if="loading">{{ t('mproxyLoadingInline') }}</span>
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-base-content/50 text-xs">
+            {{ t('mproxyAppsSelected', { selected: selected.length, total: packages.length }) }}
+            <span v-if="loading">{{ t('mproxyLoadingInline') }}</span>
+          </span>
+          <span
+            v-if="selected.length"
+            class="badge badge-primary badge-sm"
+          >
+            {{ selected.length }}
+          </span>
         </div>
 
-        <div class="bg-base-200/60 mt-2 max-h-96 scrollbar-thin overflow-y-auto rounded-lg">
+        <div
+          v-if="error"
+          class="alert alert-error mt-2 py-2 text-xs"
+        >
+          {{ error }}
+        </div>
+
+        <div
+          class="mt-2 grid max-h-[24rem] scrollbar-thin grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2"
+        >
           <div
             v-if="!loading && !filteredPackages.length"
-            class="text-base-content/50 p-4 text-center text-xs"
+            class="text-base-content/50 col-span-full p-6 text-center text-xs"
           >
             {{ packages.length ? t('mproxyAppsNoMatch') : t('mproxyAppsEmpty') }}
           </div>
           <label
             v-for="pkg in filteredPackages"
             :key="pkg.packageName"
-            class="hover:bg-base-300/50 flex cursor-pointer items-center gap-3 px-3 py-2"
+            class="flex cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 transition"
+            :class="
+              selected.includes(pkg.packageName)
+                ? 'border-primary/40 bg-primary/5'
+                : 'border-base-border bg-base-200/40 hover:bg-base-200/70'
+            "
           >
             <input
               type="checkbox"
@@ -107,6 +146,14 @@
       >
         {{ message }}
       </div>
+
+      <button
+        class="btn btn-primary mt-3 w-full sm:hidden"
+        :disabled="saving || !apps"
+        @click="apply"
+      >
+        {{ saving ? t('mproxyApplying') : t('mproxyAppsApply') }}
+      </button>
     </SectionCard>
   </div>
 </template>
@@ -160,17 +207,11 @@ const iconFailed = ref(new Set<string>())
 
 const currentMode = ref<AppsMode>('all')
 
-const modeOptions = computed<Array<{ value: AppsMode; label: string }>>(() => [
-  { value: 'all', label: t('mproxyAppsModeAll') },
-  { value: 'whitelist', label: t('mproxyAppsModeWhitelist') },
-  { value: 'blacklist', label: t('mproxyAppsModeBlacklist') },
+const modeOptions = computed<Array<{ value: AppsMode; label: string; hint: string }>>(() => [
+  { value: 'all', label: t('mproxyAppsModeAll'), hint: t('mproxyAppsHintAll') },
+  { value: 'whitelist', label: t('mproxyAppsModeWhitelist'), hint: t('mproxyAppsHintWhitelist') },
+  { value: 'blacklist', label: t('mproxyAppsModeBlacklist'), hint: t('mproxyAppsHintBlacklist') },
 ])
-
-const modeHint = computed(() => {
-  if (currentMode.value === 'whitelist') return t('mproxyAppsHintWhitelist')
-  if (currentMode.value === 'blacklist') return t('mproxyAppsHintBlacklist')
-  return t('mproxyAppsHintAll')
-})
 
 const filteredPackages = computed(() => {
   const keyword = search.value.trim().toLowerCase()
