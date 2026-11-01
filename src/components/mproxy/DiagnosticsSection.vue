@@ -4,6 +4,23 @@
       :title="t('mproxyDiagnostics')"
       :description="t('mproxyDiagnosticsDesc')"
     >
+      <template #actions>
+        <button
+          class="btn btn-primary btn-sm"
+          :disabled="!diagnosticsText"
+          @click="copy(diagnosticsText)"
+        >
+          {{ t('mproxyCopyDiagnostics') }}
+        </button>
+        <button
+          class="btn btn-sm"
+          :disabled="loading"
+          @click="loadDiagnostics"
+        >
+          {{ loading ? t('mproxyDiagnosticsReading') : t('mproxyRefreshDiagnostics') }}
+        </button>
+      </template>
+
       <div class="grid grid-cols-1 gap-2 text-sm">
         <div class="bg-base-200 flex items-center justify-between gap-2 rounded-lg px-3 py-2.5">
           <div class="min-w-0">
@@ -56,23 +73,6 @@
             <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelDataDir') }}</div>
             <div class="mt-0.5 truncate font-medium">{{ status?.backend.dataDir || '-' }}</div>
           </div>
-        </div>
-
-        <div class="mt-1 flex flex-wrap gap-2">
-          <button
-            class="btn btn-primary btn-sm"
-            :disabled="!diagnosticsText"
-            @click="copy(diagnosticsText)"
-          >
-            {{ t('mproxyCopyDiagnostics') }}
-          </button>
-          <button
-            class="btn btn-sm"
-            :disabled="loading"
-            @click="loadDiagnostics"
-          >
-            {{ loading ? t('mproxyDiagnosticsReading') : t('mproxyRefreshDiagnostics') }}
-          </button>
         </div>
 
         <div
