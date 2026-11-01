@@ -31,7 +31,7 @@
       </template>
 
       <div class="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelStatus') }}</div>
           <div class="mt-0.5 flex items-center gap-1.5 font-medium">
             <span
@@ -49,41 +49,41 @@
             }}
           </div>
         </div>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelCoreVersion') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ settings?.coreVersion || status?.core.version || t('mproxyNotInstalled') }}
           </div>
         </div>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelArch') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ status?.system.arch || '-' }} / {{ settings?.abi || status?.system.abi || '-' }}
           </div>
         </div>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelController') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ status ? status.core.controller.host + ':' + status.core.controller.port : '-' }}
           </div>
         </div>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelUptime') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ formatUptime(status?.core.uptimeSec) }}
           </div>
         </div>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelRestarts') }}</div>
           <div class="mt-0.5 truncate font-medium">
             {{ t('mproxyTimes', { n: status?.core.restarts ?? 0 }) }}
           </div>
         </div>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200/40 border-base-border rounded-xl border p-3">
           <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelChannel') }}</div>
           <div class="mt-0.5 flex items-center gap-2 font-medium">
             <select
-              class="select select-xs"
+              class="select select-sm"
               :value="settings?.x.updateChannel ?? 'stable'"
               @change="changeChannel(($event.target as HTMLSelectElement).value)"
             >
@@ -96,14 +96,14 @@
 
       <div
         v-if="status?.core.lastExit"
-        class="bg-base-200 mt-2 rounded-lg px-3 py-2.5"
+        class="bg-base-200/40 border-base-border mt-2 rounded-xl border px-3 py-2.5"
       >
         <div class="text-base-content/50 text-[11px]">{{ t('mproxyLabelLastExit') }}</div>
         <div class="mt-0.5 font-mono text-xs break-all">{{ status.core.lastExit }}</div>
       </div>
 
       <label
-        class="bg-base-200 mt-3 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
+        class="bg-base-200/40 border-base-border mt-3 flex items-center justify-between gap-3 rounded-xl border p-3"
       >
         <span class="text-sm">
           {{ t('mproxyAutoStart') }}
@@ -118,13 +118,15 @@
         />
       </label>
 
-      <div class="bg-base-200 mt-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5">
+      <div
+        class="bg-base-200/40 border-base-border mt-2 flex items-center justify-between gap-3 rounded-xl border p-3"
+      >
         <span class="text-sm">
           {{ t('mproxyPrivateDNS') }}
           <span class="text-base-content/50 block text-xs">{{ t('mproxyPrivateDNSDesc') }}</span>
         </span>
         <select
-          class="select select-xs"
+          class="select select-sm"
           :value="settings?.x.privateDNS ?? 'auto'"
           :disabled="busy || !settings"
           @change="changePrivateDNS(($event.target as HTMLSelectElement).value)"
@@ -135,7 +137,7 @@
       </div>
 
       <label
-        class="bg-base-200 mt-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
+        class="bg-base-200/40 border-base-border mt-2 flex items-center justify-between gap-3 rounded-xl border p-3"
       >
         <span class="text-sm">
           {{ t('mproxyIPv6') }}
@@ -172,30 +174,30 @@
         {{ error }}
       </div>
 
-      <div class="mt-3 flex flex-wrap gap-2">
+      <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <button
-          class="btn btn-sm"
+          class="btn btn-sm w-full"
           :disabled="busy || !status?.core.installed || status?.core.running"
           @click="runAction('start')"
         >
           {{ t('mproxyStart') }}
         </button>
         <button
-          class="btn btn-sm"
+          class="btn btn-sm w-full"
           :disabled="busy || !status?.core.running"
           @click="runAction('stop')"
         >
           {{ t('mproxyStop') }}
         </button>
         <button
-          class="btn btn-sm"
+          class="btn btn-sm w-full"
           :disabled="busy || !status?.core.installed"
           @click="runAction('restart')"
         >
           {{ t('mproxyRestart') }}
         </button>
         <button
-          class="btn btn-sm"
+          class="btn btn-sm w-full"
           :disabled="busy || !status?.core.running"
           @click="runAction('reload')"
         >

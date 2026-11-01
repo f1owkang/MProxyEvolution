@@ -4,16 +4,6 @@
       :title="t('mproxyApps')"
       :description="t('mproxyAppsDesc')"
     >
-      <template #actions>
-        <button
-          class="btn btn-primary btn-sm"
-          :disabled="saving || !apps"
-          @click="apply"
-        >
-          {{ saving ? t('mproxyApplying') : t('mproxyAppsApply') }}
-        </button>
-      </template>
-
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <button
           v-for="option in modeOptions"
@@ -148,7 +138,7 @@
       </div>
 
       <button
-        class="btn btn-primary mt-3 w-full sm:hidden"
+        class="btn btn-primary mt-3 w-full"
         :disabled="saving || !apps"
         @click="apply"
       >

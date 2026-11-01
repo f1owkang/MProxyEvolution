@@ -73,15 +73,14 @@
         :settings="settings"
         @changed="reload"
       />
-      <ConfigSection
-        v-else-if="tab === 'config'"
-        :status="status"
-        @changed="reload"
-      />
-      <SubscriptionSection
-        v-else-if="tab === 'subscription'"
-        @changed="reload"
-      />
+
+      <template v-else-if="tab === 'subscription'">
+        <SubscriptionSection @changed="reload" />
+        <ConfigSection
+          :status="status"
+          @changed="reload"
+        />
+      </template>
       <AppsSection
         v-else-if="tab === 'apps'"
         @changed="reload"
@@ -130,7 +129,6 @@ const hasToken = ref(hasMProxyToken())
 
 const tabs = computed(() => [
   { value: 'core', label: t('mproxyCore') },
-  { value: 'config', label: t('mproxyConfig') },
   { value: 'subscription', label: t('mproxySubscription') },
   { value: 'apps', label: t('mproxyApps') },
   { value: 'diagnostics', label: t('mproxyDiagnostics') },
