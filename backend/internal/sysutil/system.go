@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -248,6 +250,40 @@ func parseRouteGetInterface(out string) string {
 		}
 	}
 	return ""
+}
+
+// LocalIPv4CIDRs 返回本机各已启用非 loopback 网卡的 IPv4 直连网段（如 wlan0 的
+// 192.168.31.0/24）。手工 TUN 用它放行局域网直连流量，避免 LocalSend/小米互传等
+// 依赖局域网组播、广播和直连的服务被 TUN 接管。
+func LocalIPv4CIDRs() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var cidrs []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok || ipnet.IP.To4() == nil {
+				continue
+			}
+			cidr := ipnet.String()
+			if !seen[cidr] {
+				seen[cidr] = true
+				cidrs = append(cidrs, cidr)
+			}
+		}
+	}
+	sort.Strings(cidrs)
+	return cidrs
 }
 
 // parseDefaultInterface 从 /proc/net/route 与 `ip route` 输出解析默认网卡。

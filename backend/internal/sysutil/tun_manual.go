@@ -18,6 +18,34 @@ const (
 	manualTUNOutCh = "MPROXY_TUN_OUT"
 )
 
+// manualTUNBypassCIDRs 是必须直连、不能进 TUN 的组播/广播/链路本地网段。
+// LocalSend（224.0.0.167:53317）、小米互传、DLNA/SSDP 等依赖这些地址完成发现；
+// 若被 mark 进 TUN，发现报文会被内核/mihomo 丢掉，表现为“局域网内看不到设备”。
+var manualTUNBypassCIDRs = []string{
+	"224.0.0.0/4",        // 组播（mDNS 224.0.0.251、SSDP 239.255.255.250、LocalSend 224.0.0.167）
+	"255.255.255.255/32", // 本地广播
+	"169.254.0.0/16",     // 链路本地
+}
+
+// manualTUNBypassList 返回组播/广播 + 本机直连网段（wlan0 的 192.168.x.0/24 等）。
+func manualTUNBypassList() []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, cidr := range manualTUNBypassCIDRs {
+		if !seen[cidr] {
+			seen[cidr] = true
+			out = append(out, cidr)
+		}
+	}
+	for _, cidr := range LocalIPv4CIDRs() {
+		if !seen[cidr] {
+			seen[cidr] = true
+			out = append(out, cidr)
+		}
+	}
+	return out
+}
+
 // iptablesBinary 返回 Android 上可用的 iptables 路径。
 func iptablesBinary() string {
 	for _, p := range []string{"/system/bin/iptables", "/system/xbin/iptables"} {
@@ -134,6 +162,19 @@ func ManualTUNSetup(device string, whitelist bool, apps []string, ipv6 bool) err
 	if err := iptRun("清空 PREROUTING 链", "-t", "mangle", "-F", manualTUNPreCh); err != nil {
 		return err
 	}
+	// DNS 先打 mark（即使目标是局域网 DNS 也走 TUN 的 dns-hijack），然后再放行直连网段。
+	for _, proto := range []string{"udp", "tcp"} {
+		if err := iptRun("PREROUTING DNS mark "+proto, "-t", "mangle", "-A", manualTUNPreCh,
+			"-p", proto, "--dport", "53", "-j", "MARK", "--set-xmark", manualTUNMark); err != nil {
+			return err
+		}
+	}
+	for _, cidr := range manualTUNBypassList() {
+		if err := iptRun("PREROUTING 放行直连 "+cidr, "-t", "mangle", "-A", manualTUNPreCh,
+			"-d", cidr, "-j", "RETURN"); err != nil {
+			return err
+		}
+	}
 	if err := iptRun("PREROUTING 打 mark", "-t", "mangle", "-A", manualTUNPreCh,
 		"-j", "MARK", "--set-xmark", manualTUNMark); err != nil {
 		return err
@@ -160,6 +201,19 @@ func ManualTUNSetup(device string, whitelist bool, apps []string, ipv6 bool) err
 	if err := iptRun("排除局域网回包", "-t", "mangle", "-A", manualTUNOutCh,
 		"-m", "conntrack", "--ctdir", "REPLY", "-j", "RETURN"); err != nil {
 		return err
+	}
+	// DNS 先打 mark（局域网 DNS 也走 dns-hijack），随后直连网段/组播走正常路由。
+	for _, proto := range []string{"udp", "tcp"} {
+		if err := iptRun("OUTPUT DNS mark "+proto, "-t", "mangle", "-A", manualTUNOutCh,
+			"-p", proto, "--dport", "53", "-j", "MARK", "--set-xmark", manualTUNMark); err != nil {
+			return err
+		}
+	}
+	for _, cidr := range manualTUNBypassList() {
+		if err := iptRun("OUTPUT 放行直连 "+cidr, "-t", "mangle", "-A", manualTUNOutCh,
+			"-d", cidr, "-j", "RETURN"); err != nil {
+			return err
+		}
 	}
 	for _, uid := range uids {
 		if whitelist {
