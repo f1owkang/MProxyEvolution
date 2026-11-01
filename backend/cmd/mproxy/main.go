@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -31,7 +32,7 @@ const usage = `MProxyEvolution 后端
 
 用法:
   mproxy serve                 常驻运行后端（固定监听 127.0.0.1:9091）
-  mproxy boot [--boot]         检测后端，未启动则以脱离方式拉起，最后一行输出带 token 的面板地址
+  mproxy boot [--boot]         检测后端，未启动则拉起；默认不自动启动内核，--boot 供 service.sh 开机自启
   mproxy stop                  停止内核与后端
   mproxy status                输出中文状态摘要（未运行返回非 0）
   mproxy toggle                运行中则停止，否则拉起
@@ -94,6 +95,17 @@ func runServe(_ []string) {
 	defer logWriter.Close()
 	logger := log.New(io.MultiWriter(os.Stderr, logWriter), "", log.LstdFlags)
 
+	// mihomo 是 Go 静态二进制，Android 上可能读不到系统 CA 库，导致订阅/规则集
+	// TLS 校验报 x509 unknown authority。后端内嵌了 Mozilla 根证书：写到数据目录
+	// 并通过 SSL_CERT_FILE 传给 mihomo，动态/静态链接都不需要改。
+	caPath := filepath.Join(paths.DataDir, "cacert.pem")
+	if err := os.WriteFile(caPath, download.CACertPEM(), 0o644); err != nil {
+		logger.Printf("警告: 写入 mihomo CA 证书失败（继续运行）: %v", err)
+	} else {
+		_ = os.Setenv("SSL_CERT_FILE", caPath)
+		logger.Printf("mihomo 证书环境已就绪: SSL_CERT_FILE=%s", caPath)
+	}
+
 	cfg, err := config.Open(paths)
 	if err != nil {
 		fatalf("加载配置失败: %v", err)
@@ -142,11 +154,14 @@ func runServe(_ []string) {
 	}
 	logger.Printf("MProxyEvolution 后端 %s 启动，数据目录 %s", version.Version, paths.DataDir)
 
+	noAutoStart := os.Getenv("MPROXY_NO_AUTOSTART") == "1"
 	// 按 auto-start 异步启动内核：不再先阻塞等待默认路由（Android 策略路由下
 	// `/proc/net/route`/`ip route` 常探测不到主表默认路由，最长白等 120s）。
 	// 直接启动内核，若 TUN 未生效再停止内核、等待网络后退避重试，既加快首屏也保留慢开机兜底。
 	// 整个流程在 goroutine 中执行，绝不阻塞后端 HTTP 服务。
-	if doc, derr := cfg.Doc(); derr == nil && doc.Settings().AutoStart && mgr.Installed() && !mgr.Running() {
+	if noAutoStart {
+		logger.Printf("按本次启动策略不自动启动内核（由模块「执行」按钮控制）")
+	} else if doc, derr := cfg.Doc(); derr == nil && doc.Settings().AutoStart && mgr.Installed() && !mgr.Running() {
 		go autoStartCore(mgr, cfg, logger)
 	} else if derr == nil && !mgr.Installed() {
 		logger.Printf("未安装 mihomo 内核，可稍后在面板中安装")
@@ -200,7 +215,7 @@ func autoStartCore(mgr *core.Manager, cfg *config.Manager, logger *log.Logger) {
 		if err == nil {
 			if tunExpected {
 				if st := mgr.Status(); tunStartFailed(st, true) {
-					logger.Printf("自动启动后 TUN 未生效，切换 akashaProxy 风格手工策略路由")
+					logger.Printf("自动启动后 TUN 未生效，切换手工策略路由")
 					if ferr := mgr.EnableManualTUNFallback(ctx); ferr != nil {
 						logger.Printf("切换手工 TUN 失败（内核保持可用状态，可在面板重试）: %v", ferr)
 					} else {
@@ -223,6 +238,18 @@ func autoStartCore(mgr *core.Manager, cfg *config.Manager, logger *log.Logger) {
 		if errors.Is(err, core.ErrNotInstalled) {
 			logger.Printf("自动启动内核失败（未安装内核）: %v", err)
 			return
+		}
+		// mihomo v1.19.33 在 Android 原生 TUN auto-route 失败时可能 panic
+		// （exit status 2）。参考 akashaProxy 的兜底：立即切手工 TUN，
+		// 不要用同一份原生配置重试 5 次。
+		if strings.Contains(err.Error(), "exit status 2") {
+			logger.Printf("原生 TUN 启动崩溃（exit status 2），回退手工 TUN")
+			if ferr := mgr.EnableManualTUNFallback(ctx); ferr != nil {
+				logger.Printf("回退手工 TUN 失败: %v", ferr)
+			} else {
+				logger.Printf("已回退手工 TUN（tun.auto-route=false），耗时 %s", time.Since(startedAt).Round(time.Millisecond))
+				return
+			}
 		}
 		if attempt >= maxAttempts {
 			logger.Printf("自动启动内核失败（已尝试 %d 次），可在面板中手动启动: %v", maxAttempts, err)
@@ -265,7 +292,7 @@ func refreshModuleDescription(mgr *core.Manager, cfg *config.Manager, paths sysu
 
 // startBackendDetached 确保后端已启动，返回 token；失败时返回错误而不是直接退出，
 // 便于 action 子命令在启动内核前给出明确的失败原因。
-func startBackendDetached() (string, error) {
+func startBackendDetached(allowAutoStart bool) (string, error) {
 	if ok, _ := checkHealth(1500 * time.Millisecond); ok {
 		return readToken()
 	}
@@ -279,6 +306,9 @@ func startBackendDetached() (string, error) {
 		return "", fmt.Errorf("获取可执行文件路径失败: %w", err)
 	}
 	cmd := exec.Command(exe, "serve")
+	if !allowAutoStart {
+		cmd.Env = append(os.Environ(), "MPROXY_NO_AUTOSTART=1")
+	}
 	// 不要把 backend.log 作为 detached 子进程的输出：新后端 runServe 里会自己打开
 	// RotatingWriter 写同一个文件，两处同时写会导致日志重复、轮转统计失效。
 	// 传空串让子进程 stdout/stderr 指向 /dev/null，由新后端的 RotatingWriter 唯一负责。
@@ -310,11 +340,31 @@ func runBoot(args []string) {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
-	_ = bootFlag
 
-	token, err := startBackendDetached()
+	allowAutoStart := *bootFlag
+	token, err := startBackendDetached(allowAutoStart)
 	if err != nil {
 		fatalf("%v", err)
+	}
+	// 后端起来时内核可能仍在异步启动：等内核/控制器就绪后再返回面板地址，
+	// 避免 WebUI 打开后连接、日志、规则等页面空白十几秒。最多等 12s，失败也照常打开。
+	if allowAutoStart {
+		if ok, _ := checkHealth(1500 * time.Millisecond); ok {
+			deadline := time.Now().Add(12 * time.Second)
+			for time.Now().Before(deadline) {
+				var st statusResponse
+				if err := apiGet(token, "/api/status", &st); err == nil {
+					tunReady := !st.Config.Summary.TunEnabled || st.Core.Controller.TunEnabled
+					if st.Core.Running && st.Core.Controller.Reachable && tunReady {
+						break
+					}
+					if !st.Core.Installed || !st.Config.Summary.AutoStart {
+						break
+					}
+				}
+				time.Sleep(300 * time.Millisecond)
+			}
+		}
 	}
 	printPanelURL(token)
 }
@@ -418,7 +468,7 @@ func runToggle(args []string) {
 		runStop(nil)
 		return
 	}
-	runBoot(args)
+	runAction(args)
 }
 
 // runAction 是模块页「执行」按钮的实现：运行中则停止；未运行时拉起后端并阻塞等待内核
@@ -429,7 +479,7 @@ func runAction(_ []string) {
 		return
 	}
 
-	token, err := startBackendDetached()
+	token, err := startBackendDetached(false)
 	if err != nil {
 		fatalf("%v", err)
 	}
@@ -618,6 +668,7 @@ type statusResponse struct {
 		Valid   bool   `json:"valid"`
 		Summary struct {
 			ProxyMode  string `json:"proxyMode"`
+			AutoStart  bool   `json:"autoStart"`
 			MixedPort  int    `json:"mixedPort"`
 			SocksPort  int    `json:"socksPort"`
 			Port       int    `json:"port"`

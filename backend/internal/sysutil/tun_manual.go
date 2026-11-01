@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -11,11 +12,12 @@ import (
 // akashaProxy 风格的手工 TUN 策略路由参数（与参考模块保持一致）：
 // 打 fwmark 2025，查 table 2025，规则优先级 5000（早于 Android 的 11000+）。
 const (
-	manualTUNMark  = "2025"
-	manualTUNTable = "2025"
-	manualTUNPref  = "5000"
-	manualTUNPreCh = "MPROXY_TUN_PRE"
-	manualTUNOutCh = "MPROXY_TUN_OUT"
+	manualTUNMark   = "2025"
+	manualTUNTable  = "2025"
+	manualTUNPref   = "5000"
+	manualTUNPreCh  = "MPROXY_TUN_PRE"
+	manualTUNOutCh  = "MPROXY_TUN_OUT"
+	manualTUN6OutCh = "MPROXY_TUN6_OUT"
 )
 
 // manualTUNBypassCIDRs 是必须直连、不能进 TUN 的组播/广播/链路本地网段。
@@ -54,6 +56,16 @@ func iptablesBinary() string {
 		}
 	}
 	return "iptables"
+}
+
+// ip6tablesBinary 返回 Android 上可用的 ip6tables 路径。
+func ip6tablesBinary() string {
+	for _, p := range []string{"/system/bin/ip6tables", "/system/xbin/ip6tables"} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "ip6tables"
 }
 
 // WaitTUNDevice 等待内核创建 TUN 设备（mihomo 用 auto-route:false 启动时由它自己建卡）。
@@ -266,8 +278,80 @@ func ManualTUNSetup(device string, whitelist bool, apps []string, ipv6 bool) err
 	if !ipv6 {
 		_, _ = runCommand(context.Background(), 3*time.Second, ip, "-4", "route", "show", "table", manualTUNTable)
 		_ = os.WriteFile("/proc/sys/net/ipv6/conf/"+device+"/disable_ipv6", []byte("1\n"), 0o644)
+		// 手工 TUN 只接管 IPv4；系统 IPv6 默认路由仍然存在，应用会 Happy Eyeballs
+		// 直连海外 IPv6，绕过代理后表现为“国内正常、海外全部超时”。关闭 IPv6 时
+		// 用 ip6tables 拒绝应用侧 IPv6（放行 ::1/链路本地/组播与 root 自身），
+		// 逼应用回退 IPv4 进入 TUN。
+		setupIPv6Block()
+		// 部分 ROM 的 ip6tables 会被系统链提前放行，单靠拒绝规则仍可能漏；
+		// 同时按 x-mproxy.ipv6=false 临时关闭系统 IPv6，停止/重启时恢复原值。
+		disableSystemIPv6()
 	}
 	return nil
+}
+
+const ipv6DisabledStatePath = "/data/adb/mproxy/state/ipv6_disabled"
+
+// disableSystemIPv6 保存各接口原 disable_ipv6 值后关闭 IPv6；已有记录时保留第一次的原值。
+func disableSystemIPv6() {
+	if _, err := os.Stat(ipv6DisabledStatePath); err == nil {
+		return
+	}
+	paths, _ := filepath.Glob("/proc/sys/net/ipv6/conf/*/disable_ipv6")
+	var saved []string
+	for _, p := range paths {
+		iface := filepath.Base(filepath.Dir(p))
+		old, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		saved = append(saved, iface+"="+strings.TrimSpace(string(old)))
+		_ = os.WriteFile(p, []byte("1\n"), 0o644)
+	}
+	if len(saved) == 0 {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(ipv6DisabledStatePath), 0o700)
+	_ = os.WriteFile(ipv6DisabledStatePath, []byte(strings.Join(saved, "\n")+"\n"), 0o600)
+}
+
+// restoreSystemIPv6 恢复 disableSystemIPv6 之前的接口状态。
+func restoreSystemIPv6() {
+	data, err := os.ReadFile(ipv6DisabledStatePath)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			continue
+		}
+		_ = os.WriteFile(filepath.Join("/proc/sys/net/ipv6/conf", parts[0], "disable_ipv6"), []byte(parts[1]+"\n"), 0o644)
+	}
+	_ = os.Remove(ipv6DisabledStatePath)
+}
+
+// setupIPv6Block 拒绝应用侧 IPv6 出站，避免绕过手工 TUN 直连海外；幂等，失败不阻断启动。
+func setupIPv6Block() {
+	ip6 := ip6tablesBinary()
+	run := func(args ...string) error {
+		_, err := runCommand(context.Background(), 5*time.Second, ip6, append([]string{"-w", "100"}, args...)...)
+		return err
+	}
+	_ = run("-t", "mangle", "-N", manualTUN6OutCh)
+	_ = run("-t", "mangle", "-F", manualTUN6OutCh)
+	for _, args := range [][]string{
+		{"-d", "::1/128", "-j", "RETURN"},
+		{"-d", "fe80::/10", "-j", "RETURN"},
+		{"-d", "ff00::/8", "-j", "RETURN"},
+		{"-m", "owner", "--uid-owner", "0", "-j", "RETURN"},
+		{"-j", "REJECT"},
+	} {
+		_ = run(append([]string{"-t", "mangle", "-A", manualTUN6OutCh}, args...)...)
+	}
+	if _, err := runCommand(context.Background(), 5*time.Second, ip6, "-w", "100", "-t", "mangle", "-C", "OUTPUT", "-j", manualTUN6OutCh); err != nil {
+		_ = run("-t", "mangle", "-A", "OUTPUT", "-j", manualTUN6OutCh)
+	}
 }
 
 // ManualTUNCleanup 删除手工 TUN 的 iptables 链/规则与策略路由；幂等，Android 外为空操作。
@@ -295,4 +379,13 @@ func ManualTUNCleanup(device string) {
 	}
 	_, _ = runCommand(context.Background(), 5*time.Second, ip, "-4", "rule", "del", "fwmark", manualTUNMark, "table", manualTUNTable, "pref", manualTUNPref)
 	_, _ = runCommand(context.Background(), 5*time.Second, ip, "-4", "route", "flush", "table", manualTUNTable)
+
+	ip6 := ip6tablesBinary()
+	run6 := func(args ...string) {
+		_, _ = runCommand(context.Background(), 5*time.Second, ip6, append([]string{"-w", "100"}, args...)...)
+	}
+	run6("-t", "mangle", "-D", "OUTPUT", "-j", manualTUN6OutCh)
+	run6("-t", "mangle", "-F", manualTUN6OutCh)
+	run6("-t", "mangle", "-X", manualTUN6OutCh)
+	restoreSystemIPv6()
 }

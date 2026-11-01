@@ -394,6 +394,16 @@ func (m *Manager) start(ctx context.Context, retryPending bool) error {
 		return fmt.Errorf("读取配置失败: %w", err)
 	}
 	m.prepareTUNInterface(doc)
+	if doc.EnsureProviderRouting() {
+		if _, err := m.cfg.Save(doc); err != nil {
+			m.logger.Printf("写入 provider 自动选择组失败（继续启动）: %v", err)
+		}
+	}
+	if doc.EnsureQUICFallback() {
+		if _, err := m.cfg.Save(doc); err != nil {
+			m.logger.Printf("写入 QUIC 回退规则失败（继续启动）: %v", err)
+		}
+	}
 	if err := doc.ValidateStructure(); err != nil {
 		return fmt.Errorf("配置校验失败: %w", err)
 	}
@@ -538,7 +548,7 @@ func (m *Manager) setupManualTUN(doc *config.Doc) {
 	m.mu.Lock()
 	m.manualTUN = true
 	m.mu.Unlock()
-	m.logger.Printf("已按 akashaProxy 方式建立 TUN 手工策略路由（设备=%s，mark/table=2025）", device)
+	m.logger.Printf("已建立 TUN 手工策略路由（设备=%s，mark/table=2025）", device)
 }
 
 // cleanupManualTUN 移除手工 TUN 规则；幂等，未启用时为空操作。
@@ -562,7 +572,7 @@ func (m *Manager) cleanupManualTUN() {
 // 停内核 → 把 tun.auto-route 写为 false（持久化）→ 重启内核并安装手工规则。
 // 该配置会保留，后续启动都走手工模式；用户可在面板改回 auto-route: true。
 func (m *Manager) EnableManualTUNFallback(ctx context.Context) error {
-	m.logger.Printf("TUN 自动路由失败，切换为 akashaProxy 风格手工策略路由（tun.auto-route=false）")
+	m.logger.Printf("TUN 自动路由失败，切换为手工策略路由（tun.auto-route=false）")
 	if err := m.Stop(); err != nil {
 		return fmt.Errorf("切换手工 TUN 前停止内核失败: %w", err)
 	}
@@ -599,6 +609,29 @@ func (m *Manager) EnableManualTUNFallback(ctx context.Context) error {
 func (m *Manager) prepareTUNInterface(doc *config.Doc) {
 	if !doc.GetBool(false, "tun", "enable") {
 		return
+	}
+	// 桌面开发没有 Android 策略路由，保留配置原样，避免测试/开发环境写 interface-name。
+	if !sysutil.IsAndroid() {
+		return
+	}
+	// 参考 akashaProxy：Android TUN 优先用 mihomo 原生 auto-route/auto-redirect。
+	// 旧版本曾因 auto-route 失败 panic 而强制切成手工 TUN；这里做一次“原生试运行”：
+	// 只在没有失败标记时切回原生，失败后自动回退手工并留标记，避免反复崩溃。
+	trialMarker := filepath.Join(m.paths.StateDir(), "tun_native_trial")
+	if !doc.GetBool(false, "tun", "auto-route") {
+		if _, err := os.Stat(trialMarker); os.IsNotExist(err) {
+			if iface := sysutil.DefaultInterface(); iface != "" {
+				doc.Set([]string{"tun", "auto-route"}, true)
+				doc.Set([]string{"tun", "auto-redirect"}, true)
+				doc.Set([]string{"tun", "strict-route"}, true)
+				doc.Set([]string{"tun", "auto-detect-interface"}, false)
+				doc.SetTop("interface-name", iface)
+				if _, serr := m.cfg.Save(doc); serr == nil {
+					_ = os.WriteFile(trialMarker, []byte("native-tun-trial\n"), 0o600)
+					m.logger.Printf("尝试原生 TUN（auto-route/auto-redirect，网卡=%s）", iface)
+				}
+			}
+		}
 	}
 	// 手工 TUN 模式（auto-route=false）不依赖 mihomo 的 Android 默认网卡监控；
 	// 必须关闭 auto-detect-interface 并写入顶层 interface-name，否则 mihomo 会不断

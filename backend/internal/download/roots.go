@@ -13,6 +13,11 @@ import (
 //go:embed cacert.pem
 var caBundle []byte
 
+// CACertPEM 返回内嵌 Mozilla CA 根证书，供 mihomo 通过 SSL_CERT_FILE 使用。
+func CACertPEM() []byte {
+	return append([]byte(nil), caBundle...)
+}
+
 // rootCAs 返回优先使用系统根池、并叠加内置 Mozilla 根证书的证书池。
 func rootCAs() *x509.CertPool {
 	pool, err := x509.SystemCertPool()

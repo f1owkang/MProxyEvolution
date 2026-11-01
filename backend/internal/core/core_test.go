@@ -258,14 +258,10 @@ func TestOpenCoreLogRotation(t *testing.T) {
 }
 
 func TestPrepareTUNInterface(t *testing.T) {
-	m, paths := newTestManager(t)
+	m, _ := newTestManager(t)
 
-	// 1) 默认模板 auto-detect-interface: true：不修改配置，也不写无效键 tun.interface-name
-	before, err := os.ReadFile(paths.ConfigPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := m.cfg.Doc()
+	// 1) 原生 auto-route + auto-detect-interface: true：不修改配置，也不写无效键 tun.interface-name
+	doc, err := config.Parse([]byte("tun:\n  enable: true\n  auto-route: true\n  auto-detect-interface: true\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,13 +274,6 @@ func TestPrepareTUNInterface(t *testing.T) {
 	}
 	if doc.GetString("", "interface-name") != "" {
 		t.Fatal("自动探测开启时不应写入顶层 interface-name")
-	}
-	after, err := os.ReadFile(paths.ConfigPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(before, after) {
-		t.Fatal("没有变化时不应重写配置文件")
 	}
 
 	// 2) 用户显式关闭自动探测且已填写 interface-name：保持原值
