@@ -766,6 +766,8 @@ const en = {
   mproxyValidationFail: 'Validation failed',
   mproxyExportConfig: 'Export config',
   mproxyDownloadBackup: 'Download backup',
+  mproxyCopyConfig: 'Copy config',
+  mproxyCopyBackup: 'Copy backup',
   mproxyRestoreBackup: 'Restore backup',
   mproxyResetConfig: 'Reset config',
   mproxyConfigLoadError: 'Failed to read config: {error}',

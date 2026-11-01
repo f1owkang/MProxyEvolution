@@ -497,6 +497,11 @@ const download = async (
   saveBlob(blob, filenameFromResponse(response, fallbackFilename))
 }
 
+const fetchText = async (path: string): Promise<string> => {
+  const response = await fetchRaw(path)
+  return response.text()
+}
+
 const timestampSuffix = (): string => {
   const now = new Date()
   const pad = (value: number) => String(value).padStart(2, '0')
@@ -570,14 +575,14 @@ export const mproxyApi = {
       body: payload,
       timeoutMs: 180_000,
     }),
-  exportConfig: () => download('/api/config/export', `mproxy-config-${timestampSuffix()}.yaml`),
+  exportConfigText: () => fetchText('/api/config/export'),
   resetConfig: () =>
     request<{ ok: boolean }>('/api/config/reset', {
       method: 'POST',
       body: { confirm: true },
       timeoutMs: 60_000,
     }),
-  backupConfig: () => download('/api/config/backup', `mproxy-backup-${timestampSuffix()}.yaml`),
+  backupConfigText: () => fetchText('/api/config/backup'),
   restoreConfig: () =>
     request<{ ok: boolean }>('/api/config/restore', {
       method: 'POST',

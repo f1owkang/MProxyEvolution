@@ -1,10 +1,13 @@
 <template>
   <div class="flex flex-col gap-4">
+    <SubscriptionSection
+      :status="status"
+      @changed="reload"
+    />
     <ConfigSection
       :status="status"
       @changed="reload"
     />
-    <SubscriptionSection @changed="reload" />
   </div>
 </template>
 

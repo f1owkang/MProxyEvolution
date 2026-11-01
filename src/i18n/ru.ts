@@ -771,6 +771,8 @@ const ru: LANG_MESSAGE = {
   mproxyValidationFail: 'Проверка не пройдена',
   mproxyExportConfig: 'Экспорт конфигурации',
   mproxyDownloadBackup: 'Скачать резервную копию',
+  mproxyCopyConfig: 'Копировать конфигурацию',
+  mproxyCopyBackup: 'Копировать резервную копию',
   mproxyRestoreBackup: 'Восстановить копию',
   mproxyResetConfig: 'Сбросить конфигурацию',
   mproxyConfigLoadError: 'Не удалось прочитать конфигурацию: {error}',

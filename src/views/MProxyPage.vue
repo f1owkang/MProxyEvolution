@@ -74,13 +74,11 @@
         @changed="reload"
       />
 
-      <template v-else-if="tab === 'subscription'">
-        <SubscriptionSection @changed="reload" />
-        <ConfigSection
-          :status="status"
-          @changed="reload"
-        />
-      </template>
+      <SubscriptionSection
+        v-else-if="tab === 'subscription'"
+        :status="status"
+        @changed="reload"
+      />
       <AppsSection
         v-else-if="tab === 'apps'"
         @changed="reload"
@@ -97,7 +95,6 @@
 import { hasMProxyToken, mproxyApi, type MProxySettings, type MProxyStatus } from '@/api/mproxy'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import AppsSection from '@/components/mproxy/AppsSection.vue'
-import ConfigSection from '@/components/mproxy/ConfigSection.vue'
 import CoreSection from '@/components/mproxy/CoreSection.vue'
 import DiagnosticsSection from '@/components/mproxy/DiagnosticsSection.vue'
 import OnboardingCard from '@/components/mproxy/OnboardingCard.vue'

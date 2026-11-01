@@ -83,14 +83,14 @@
           :disabled="busy"
           @click="exportConfig"
         >
-          {{ t('mproxyExportConfig') }}
+          {{ t('mproxyCopyConfig') }}
         </button>
         <button
           class="btn btn-sm"
           :disabled="busy"
           @click="backupConfig"
         >
-          {{ t('mproxyDownloadBackup') }}
+          {{ t('mproxyCopyBackup') }}
         </button>
         <button
           class="btn btn-sm"
@@ -228,11 +228,33 @@ const saveAndApply = async () => {
   }
 }
 
-const runDownload = async (fn: () => Promise<void>, label: string) => {
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
+
+const runCopy = async (fn: () => Promise<string>, label: string) => {
   busy.value = true
   try {
-    await fn()
-    setMessage(t('mproxyDownloadStarted', { label }))
+    const text = await fn()
+    if (!(await copyToClipboard(text))) throw new Error(t('mproxyCopyFailed'))
+    setMessage(t('mproxyCopied'))
   } catch (error) {
     setMessage(
       t('mproxyDownloadFailed', {
@@ -246,8 +268,8 @@ const runDownload = async (fn: () => Promise<void>, label: string) => {
   }
 }
 
-const exportConfig = () => runDownload(mproxyApi.exportConfig, t('mproxyLabelExport'))
-const backupConfig = () => runDownload(mproxyApi.backupConfig, t('mproxyLabelBackup'))
+const exportConfig = () => runCopy(mproxyApi.exportConfigText, t('mproxyCopyConfig'))
+const backupConfig = () => runCopy(mproxyApi.backupConfigText, t('mproxyCopyBackup'))
 
 const restoreConfig = async () => {
   if (!window.confirm(t('mproxyRestoreConfirm'))) return

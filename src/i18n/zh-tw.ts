@@ -749,6 +749,8 @@ const zhTW: LANG_MESSAGE = {
   mproxyValidationFail: '驗證失敗',
   mproxyExportConfig: '匯出設定',
   mproxyDownloadBackup: '下載備份',
+  mproxyCopyConfig: '複製設定',
+  mproxyCopyBackup: '複製備份',
   mproxyRestoreBackup: '還原備份',
   mproxyResetConfig: '重設設定',
   mproxyConfigLoadError: '讀取設定失敗：{error}',

@@ -749,6 +749,8 @@ const zh: LANG_MESSAGE = {
   mproxyValidationFail: '校验失败',
   mproxyExportConfig: '导出配置',
   mproxyDownloadBackup: '下载备份',
+  mproxyCopyConfig: '复制配置',
+  mproxyCopyBackup: '复制备份',
   mproxyRestoreBackup: '恢复备份',
   mproxyResetConfig: '重置配置',
   mproxyConfigLoadError: '读取配置失败：{error}',

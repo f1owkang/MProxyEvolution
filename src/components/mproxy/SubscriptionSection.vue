@@ -222,19 +222,35 @@
         </div>
       </details>
     </SectionCard>
+
+    <ConfigSection
+      :status="status"
+      @changed="emit('changed')"
+    />
   </div>
 </template>
 <script setup lang="ts">
-import { mproxyApi, type ImportMode, type MihomoProvider } from '@/api/mproxy'
+import { mproxyApi, type ImportMode, type MihomoProvider, type MProxyStatus } from '@/api/mproxy'
+import ConfigSection from '@/components/mproxy/ConfigSection.vue'
 import SectionCard from '@/components/mproxy/SectionCard.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
+const props = withDefaults(
+  defineProps<{
+    status?: MProxyStatus | null
+  }>(),
+  { status: null },
+)
+
 const emit = defineEmits<{
   changed: []
 }>()
+
+// status 供底部的 ConfigSection 使用；用 void 避免未使用变量告警。
+void props
 
 const mode = ref<ImportMode>('merge')
 const modeOptions = computed(() => [
